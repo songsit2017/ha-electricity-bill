@@ -1,0 +1,692 @@
+/**
+ * Electricity Bill - sidebar panel for Home Assistant (vanilla web component, no build step).
+ * Status overview, photo scan via AI Task, editable form, bill history.
+ * All dynamic text is inserted with textContent / createElement (never innerHTML with data).
+ */
+
+const WARNING_MESSAGES = {
+  rate_unusual: "อัตราค่าไฟต่อหน่วยดูผิดปกติ (นอกช่วง 1.5 – 12 บาท) ตรวจตัวเลขอีกครั้ง",
+  date_in_future: "วันที่สิ้นสุดรอบบิลเป็นวันในอนาคต กรุณาตรวจวันที่",
+  kwh_out_of_range: "จำนวนหน่วยอยู่นอกช่วงปกติ (1 – 5,000 kWh)",
+  amount_out_of_range: "ยอดเงินอยู่นอกช่วงปกติ (1 – 100,000 บาท)",
+};
+
+const ERROR_MESSAGES = {
+  no_ai_task:
+    "ยังไม่ได้ตั้งค่า AI — ไปที่ Settings → Devices & services → Add integration → Anthropic แล้วใส่ API key ระหว่างนี้พิมพ์ตัวเลขเองได้",
+  file_too_large: "ไฟล์รูปใหญ่เกิน 8 MB",
+  unsupported_media_type: "รองรับเฉพาะไฟล์ JPEG, PNG หรือ WebP",
+  ai_task_failed: "AI อ่านรูปไม่สำเร็จ ลองถ่ายใหม่ให้ชัดขึ้น หรือพิมพ์ตัวเลขเอง",
+  invalid_ai_response: "AI ตอบกลับในรูปแบบที่ไม่คาดคิด ลองใหม่อีกครั้ง หรือพิมพ์ตัวเลขเอง",
+};
+
+const CONFIDENCE_TEXT = { high: "AI มั่นใจสูง", medium: "AI มั่นใจปานกลาง", low: "AI มั่นใจต่ำ — ตรวจให้ละเอียด" };
+
+const STYLE = `
+  :host {
+    --eb-accent: var(--primary-color, #03a9f4);
+    --eb-accent-2: color-mix(in srgb, var(--primary-color, #03a9f4) 45%, #7c4dff);
+    --eb-radius: 20px;
+    --eb-card: var(--card-background-color, #fff);
+    --eb-soft: color-mix(in srgb, var(--primary-text-color, #212121) 5%, transparent);
+    --eb-line: var(--divider-color, rgba(127,127,127,.25));
+    --eb-muted: var(--secondary-text-color, #727272);
+    display: block;
+    background: var(--primary-background-color, #fafafa);
+    color: var(--primary-text-color, #212121);
+    font-family: var(--paper-font-body1_-_font-family, Roboto, "Noto Sans Thai", sans-serif);
+    min-height: 100%;
+    box-sizing: border-box;
+  }
+  * { box-sizing: border-box; }
+  .topbar {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: 4px;
+    height: 56px; padding: 0 8px;
+    background: var(--app-header-background-color, var(--primary-background-color));
+    color: var(--app-header-text-color, var(--primary-text-color));
+    border-bottom: 1px solid var(--eb-line);
+  }
+  .topbar .title { font-size: 20px; font-weight: 500; margin-left: 4px; }
+  .page { max-width: 1100px; margin: 0 auto; padding: 16px 16px 48px; display: grid; gap: 16px; }
+
+  .hero {
+    position: relative; overflow: hidden;
+    border-radius: var(--eb-radius);
+    padding: 24px 24px 22px;
+    color: #fff;
+    background: linear-gradient(135deg, var(--eb-accent) 0%, var(--eb-accent-2) 100%);
+    box-shadow: 0 10px 30px color-mix(in srgb, var(--eb-accent) 35%, transparent);
+  }
+  .hero::after {
+    content: ""; position: absolute; right: -60px; top: -70px; width: 260px; height: 260px; border-radius: 50%;
+    background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.28), rgba(255,255,255,0) 70%);
+    pointer-events: none;
+  }
+  .hero-label { font-size: 14px; opacity: .9; display: flex; align-items: center; gap: 8px; }
+  .hero-value { font-size: clamp(40px, 9vw, 60px); font-weight: 700; line-height: 1.1; margin: 6px 0 2px; letter-spacing: -.5px; }
+  .hero-value small { font-size: .38em; font-weight: 500; opacity: .85; margin-left: 6px; letter-spacing: 0; }
+  .hero-sub { font-size: 14px; opacity: .92; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 500;
+    background: rgba(255,255,255,.2); backdrop-filter: blur(4px);
+  }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .tile {
+    background: var(--eb-card); border: 1px solid var(--eb-line); border-radius: 16px;
+    padding: 14px 16px; display: flex; gap: 12px; align-items: center;
+  }
+  .tile-ico {
+    flex: none; width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
+    background: color-mix(in srgb, var(--eb-accent) 14%, transparent); color: var(--eb-accent);
+  }
+  .tile-label { font-size: 12px; color: var(--eb-muted); }
+  .tile-value { font-size: 20px; font-weight: 650; }
+  .tile-value small { font-size: 12px; font-weight: 400; color: var(--eb-muted); margin-left: 3px; }
+
+  .grid { display: grid; gap: 16px; align-items: start; }
+  @media (min-width: 860px) { .grid { grid-template-columns: 1.05fr 1fr; } }
+
+  .card {
+    background: var(--eb-card); border: 1px solid var(--eb-line); border-radius: var(--eb-radius);
+    padding: 20px; box-shadow: var(--ha-card-box-shadow, none);
+  }
+  .card h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .card .hint { margin: 0 0 16px; font-size: 13px; color: var(--eb-muted); }
+
+  .drop {
+    position: relative; overflow: hidden;
+    border: 2px dashed color-mix(in srgb, var(--eb-accent) 55%, transparent);
+    border-radius: 16px; padding: 22px 16px; text-align: center;
+    background: color-mix(in srgb, var(--eb-accent) 6%, transparent);
+    transition: background .2s, border-color .2s, transform .2s;
+  }
+  .drop.over { background: color-mix(in srgb, var(--eb-accent) 16%, transparent); transform: scale(1.01); }
+  .drop-ico { color: var(--eb-accent); --mdc-icon-size: 40px; }
+  .drop-title { font-weight: 600; margin: 6px 0 2px; }
+  .drop-sub { font-size: 12.5px; color: var(--eb-muted); margin-bottom: 14px; }
+  .btn-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .preview { display: none; position: relative; margin-bottom: 12px; border-radius: 14px; overflow: hidden; max-height: 220px; }
+  .preview.show { display: block; }
+  .preview img { width: 100%; max-height: 220px; object-fit: cover; display: block; filter: saturate(.95); }
+  .preview.scanning::after {
+    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 40%;
+    background: linear-gradient(to bottom, rgba(255,255,255,0), color-mix(in srgb, var(--eb-accent) 55%, transparent), rgba(255,255,255,0));
+    animation: sweep 1.4s ease-in-out infinite;
+  }
+  .preview .scan-label {
+    position: absolute; left: 10px; bottom: 10px; padding: 6px 12px; border-radius: 999px;
+    background: rgba(0,0,0,.6); color: #fff; font-size: 13px; display: none; align-items: center; gap: 8px;
+  }
+  .preview.scanning .scan-label { display: inline-flex; }
+  @keyframes sweep { 0% { transform: translateY(-100%); } 100% { transform: translateY(260%); } }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    min-height: 44px; padding: 0 18px; border-radius: 12px; border: 0; cursor: pointer;
+    font: inherit; font-weight: 600; font-size: 14px;
+    color: #fff; background: linear-gradient(135deg, var(--eb-accent), var(--eb-accent-2));
+    transition: transform .12s, box-shadow .2s, opacity .2s;
+  }
+  .btn:hover:not(:disabled) { box-shadow: 0 6px 16px color-mix(in srgb, var(--eb-accent) 35%, transparent); transform: translateY(-1px); }
+  .btn:active:not(:disabled) { transform: translateY(0); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn.ghost { background: transparent; color: var(--eb-accent); border: 1.5px solid var(--eb-accent); }
+  .btn.block { width: 100%; min-height: 50px; font-size: 16px; }
+  .btn.small { min-height: 34px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
+  .btn.danger { background: var(--error-color, #db4437); }
+
+  .fields { display: grid; gap: 14px; margin-top: 18px; }
+  .field label { display: block; font-size: 12.5px; font-weight: 600; color: var(--eb-muted); margin: 0 0 6px 2px; }
+  .input {
+    display: flex; align-items: center; gap: 8px;
+    border: 1.5px solid var(--eb-line); border-radius: 12px; padding: 0 14px; min-height: 50px;
+    background: var(--input-fill-color, var(--eb-soft));
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .input:focus-within { border-color: var(--eb-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--eb-accent) 22%, transparent); }
+  .input input {
+    flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+    font: inherit; font-size: 17px; color: var(--primary-text-color); padding: 12px 0;
+  }
+  .input .unit { color: var(--eb-muted); font-size: 14px; }
+  .input.scanned { border-color: color-mix(in srgb, var(--success-color, #43a047) 70%, transparent); }
+
+  .rate {
+    margin-top: 12px; padding: 12px 16px; border-radius: 14px;
+    display: flex; justify-content: space-between; align-items: center;
+    background: color-mix(in srgb, var(--eb-accent) 10%, transparent);
+  }
+  .rate b { font-size: 20px; color: var(--eb-accent); }
+  .badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 600; }
+  .badge.high { background: rgba(67,160,71,.16); color: var(--success-color, #2e7d32); }
+  .badge.medium { background: rgba(251,140,0,.16); color: #e65100; }
+  .badge.low { background: rgba(229,57,53,.16); color: var(--error-color, #c62828); }
+  .alert { margin-top: 12px; padding: 11px 14px; border-radius: 12px; font-size: 13.5px; line-height: 1.45; display: flex; gap: 10px; }
+  .alert.warn { background: rgba(251,140,0,.14); color: #bf5b00; }
+  .alert.err { background: rgba(229,57,53,.13); color: var(--error-color, #c62828); }
+  .alert.ok { background: rgba(67,160,71,.14); color: var(--success-color, #2e7d32); }
+  .alert.ask { background: color-mix(in srgb, var(--eb-accent) 12%, transparent); flex-direction: column; }
+  .alert .actions { display: flex; gap: 8px; }
+
+  .history { display: grid; gap: 4px; }
+  .row {
+    display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center;
+    padding: 12px 6px; border-bottom: 1px solid var(--eb-line);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row-date { font-weight: 600; }
+  .row-amt { font-weight: 700; font-size: 17px; text-align: right; }
+  .row-meta { font-size: 12.5px; color: var(--eb-muted); }
+  .bar { grid-column: 1 / -1; height: 7px; border-radius: 999px; background: var(--eb-soft); overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--eb-accent), var(--eb-accent-2)); }
+  .row-actions { display: flex; justify-content: flex-end; }
+  .empty { text-align: center; color: var(--eb-muted); padding: 28px 8px; }
+  .empty ha-icon { --mdc-icon-size: 44px; opacity: .5; display: block; margin: 0 auto 6px; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 30px); opacity: 0;
+    padding: 12px 20px; border-radius: 14px; font-size: 14px; font-weight: 500; color: #fff;
+    background: #2e7d32; box-shadow: 0 8px 24px rgba(0,0,0,.25); transition: all .25s; pointer-events: none; z-index: 20;
+    max-width: calc(100vw - 32px);
+  }
+  .toast.show { transform: translate(-50%, 0); opacity: 1; }
+  .toast.err { background: #c62828; }
+  .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; animation: rot .8s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  @media (max-width: 520px) { .page { padding: 12px 12px 40px; } .hero { padding: 20px; } }
+`;
+
+function el(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k === "class") node.className = v;
+    else if (k === "text") node.textContent = v;
+    else if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v === true ? "" : String(v));
+  }
+  for (const c of children) {
+    if (c === null || c === undefined || c === false) continue;
+    node.append(c.nodeType ? c : document.createTextNode(String(c)));
+  }
+  return node;
+}
+const icon = (name) => el("ha-icon", { icon: name });
+const num = (v, d = 2) =>
+  Number(v).toLocaleString("th-TH", { minimumFractionDigits: d, maximumFractionDigits: d });
+
+class ElectricityBillPanel extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._hass = null;
+    this._narrow = false;
+    this._built = false;
+    this._sig = "";
+    this._scanning = false;
+    this._fromScan = false;
+    this._confidence = null;
+    this._warnings = [];
+    this._scanError = null;
+    this._pendingReplace = false;
+    this._delArmed = null;
+    this._previewUrl = null;
+    this._toastTimer = null;
+  }
+
+  set hass(h) {
+    this._hass = h;
+    if (!this._built) this._build();
+    if (this._menu) this._menu.hass = h;
+    this._refresh();
+  }
+  set narrow(v) {
+    this._narrow = Boolean(v);
+    if (this._menu) this._menu.narrow = this._narrow;
+  }
+  set panel(_v) {}
+
+  /* ------------------------------ build ------------------------------ */
+  _build() {
+    this._built = true;
+    const root = this.shadowRoot;
+    root.append(el("style", { text: STYLE }));
+
+    this._menu = el("ha-menu-button");
+    this._menu.hass = this._hass;
+    this._menu.narrow = this._narrow;
+    root.append(el("div", { class: "topbar" }, this._menu, el("div", { class: "title", text: "ค่าไฟ" })));
+
+    // hero
+    this._heroValue = el("div", { class: "hero-value" });
+    this._heroSub = el("div", { class: "hero-sub" });
+    this._heroChips = el("div", { class: "chips" });
+    const hero = el(
+      "div",
+      { class: "hero" },
+      el("div", { class: "hero-label" }, icon("mdi:flash"), "ค่าไฟรอบนี้ (ประมาณการ)"),
+      this._heroValue,
+      this._heroSub,
+      this._heroChips
+    );
+
+    // tiles
+    this._tiles = el("div", { class: "tiles" });
+
+    // scan card
+    this._cameraInput = el("input", { type: "file", accept: "image/*", capture: "environment", style: "display:none" });
+    this._galleryInput = el("input", { type: "file", accept: "image/*", style: "display:none" });
+    for (const inp of [this._cameraInput, this._galleryInput]) {
+      inp.addEventListener("change", (e) => {
+        const f = e.target.files && e.target.files[0];
+        if (f) this._scan(f);
+      });
+    }
+    this._cameraBtn = el("button", { class: "btn", onclick: () => this._cameraInput.click() }, icon("mdi:camera"), "ถ่ายรูปบิล");
+    this._galleryBtn = el("button", { class: "btn ghost", onclick: () => this._galleryInput.click() }, icon("mdi:image"), "เลือกรูป");
+    this._previewImg = el("img", { alt: "รูปบิล" });
+    this._preview = el(
+      "div",
+      { class: "preview" },
+      this._previewImg,
+      el("span", { class: "scan-label" }, el("span", { class: "spin" }), "กำลังอ่านบิล…")
+    );
+    this._drop = el(
+      "div",
+      { class: "drop" },
+      el("div", { class: "drop-ico" }, icon("mdi:receipt-text-outline")),
+      el("div", { class: "drop-title", text: "ถ่ายหรือลากรูปบิลมาวางที่นี่" }),
+      el("div", { class: "drop-sub", text: "AI จะอ่านวันที่ หน่วย และยอดเงินให้อัตโนมัติ คุณตรวจแก้ได้ก่อนบันทึก" }),
+      el("div", { class: "btn-row" }, this._cameraBtn, this._galleryBtn),
+      this._cameraInput,
+      this._galleryInput
+    );
+    for (const ev of ["dragenter", "dragover"]) {
+      this._drop.addEventListener(ev, (e) => {
+        e.preventDefault();
+        this._drop.classList.add("over");
+      });
+    }
+    for (const ev of ["dragleave", "drop"]) {
+      this._drop.addEventListener(ev, (e) => {
+        e.preventDefault();
+        this._drop.classList.remove("over");
+      });
+    }
+    this._drop.addEventListener("drop", (e) => {
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) this._scan(f);
+    });
+
+    this._notes = el("div"); // errors / warnings / confidence
+    this._dateInput = el("input", { type: "date" });
+    this._kwhInput = el("input", { type: "number", step: "any", min: "0", inputmode: "decimal", placeholder: "0.00" });
+    this._amountInput = el("input", { type: "number", step: "any", min: "0", inputmode: "decimal", placeholder: "0.00" });
+    for (const i of [this._dateInput, this._kwhInput, this._amountInput]) {
+      i.addEventListener("input", () => {
+        i.closest(".input").classList.remove("scanned");
+        this._pendingReplace = false;
+        this._onInput();
+      });
+    }
+    const field = (label, input, unit) =>
+      el("div", { class: "field" }, el("label", { text: label }), el("div", { class: "input" }, input, unit ? el("span", { class: "unit", text: unit }) : null));
+    this._rateVal = el("b", { text: "–" });
+    this._askBox = el("div");
+    this._saveBtn = el("button", { class: "btn block", disabled: true, onclick: () => this._save(false) }, icon("mdi:content-save"), "บันทึกบิล");
+
+    const addCard = el(
+      "div",
+      { class: "card" },
+      el("h2", {}, icon("mdi:camera-plus"), "เพิ่มบิลใหม่"),
+      el("p", { class: "hint", text: "ถ่ายรูปบิลหรือพิมพ์ตัวเลขเองก็ได้ วันตัดรอบขยับได้ตามบิลจริง" }),
+      this._preview,
+      this._drop,
+      this._notes,
+      el(
+        "div",
+        { class: "fields" },
+        field("วันสิ้นสุดรอบบิล", this._dateInput, null),
+        field("จำนวนหน่วยที่ใช้", this._kwhInput, "kWh"),
+        field("ยอดเงินรวมทั้งสิ้น", this._amountInput, "บาท")
+      ),
+      el("div", { class: "rate" }, el("span", { text: "อัตราค่าไฟจริงต่อหน่วย" }), el("span", {}, this._rateVal)),
+      this._askBox,
+      el("div", { style: "margin-top:14px" }, this._saveBtn)
+    );
+
+    // history card
+    this._history = el("div", { class: "history" });
+    const histCard = el(
+      "div",
+      { class: "card" },
+      el("h2", {}, icon("mdi:history"), "ประวัติบิล"),
+      el("p", { class: "hint", text: "บิลที่บันทึกไว้ เรียงจากล่าสุด" }),
+      this._history
+    );
+
+    this._toast = el("div", { class: "toast" });
+    root.append(el("div", { class: "page" }, hero, this._tiles, el("div", { class: "grid" }, addCard, histCard)), this._toast);
+  }
+
+  /* ------------------------------ state ------------------------------ */
+  _st(id) {
+    const s = this._hass.states[id];
+    if (!s || s.state === "unavailable" || s.state === "unknown") return null;
+    return s;
+  }
+
+  _refresh() {
+    const ids = [
+      "sensor.electricity_bill_effective_rate",
+      "sensor.electricity_bill_cycle_energy",
+      "sensor.electricity_bill_cycle_cost_estimate",
+      "sensor.electricity_bill_last_bill_amount",
+      "sensor.electricity_bill_last_bill_energy",
+      "sensor.electricity_bill_last_bill_unmetered_energy",
+      "sensor.electricity_bill_bill_history",
+    ];
+    const sig = ids
+      .map((i) => {
+        const s = this._hass.states[i];
+        return s ? s.state + "|" + s.last_updated : "-";
+      })
+      .join(";") + "|" + this._delArmed;
+    if (sig === this._sig) return; // nothing relevant changed: avoid re-rendering on every HA update
+    this._sig = sig;
+    this._renderStatus();
+    this._renderHistory();
+  }
+
+  _renderStatus() {
+    const rate = this._st("sensor.electricity_bill_effective_rate");
+    const cyc = this._st("sensor.electricity_bill_cycle_energy");
+    const cost = this._st("sensor.electricity_bill_cycle_cost_estimate");
+    const lastAmt = this._st("sensor.electricity_bill_last_bill_amount");
+    const lastKwh = this._st("sensor.electricity_bill_last_bill_energy");
+    const unm = this._st("sensor.electricity_bill_last_bill_unmetered_energy");
+
+    this._heroValue.replaceChildren(
+      document.createTextNode("฿ " + (cost ? num(cost.state, 2) : "–"))
+    );
+    const days = cyc && cyc.attributes.days_in_cycle;
+    const kwhTxt = cyc ? num(cyc.state, 1) + " หน่วย" : "ยังไม่มีข้อมูลหน่วย";
+    this._heroSub.textContent =
+      kwhTxt + (days != null ? " · ผ่านมา " + days + " วัน" : "") + (rate ? " · " + num(rate.state, 2) + " บาท/หน่วย" : "");
+
+    this._heroChips.replaceChildren();
+    if (rate) {
+      const fromBill = rate.attributes.source === "bill";
+      this._heroChips.append(
+        el("span", { class: "chip" }, icon(fromBill ? "mdi:check-decagram" : "mdi:information-outline"), fromBill ? "อัตราจากบิลจริง" : "ใช้อัตราสำรอง (ยังไม่มีบิล)")
+      );
+    }
+    if (cost && cyc && Number(days) >= 3) {
+      const proj = (Number(cost.state) / Number(days)) * 30;
+      this._heroChips.append(el("span", { class: "chip" }, icon("mdi:trending-up"), "คาดการณ์ 30 วัน ≈ ฿" + num(proj, 0)));
+    }
+
+    const tile = (ico, label, value, unit) =>
+      el(
+        "div",
+        { class: "tile" },
+        el("div", { class: "tile-ico" }, icon(ico)),
+        el(
+          "div",
+          {},
+          el("div", { class: "tile-label", text: label }),
+          el("div", { class: "tile-value" }, value === null ? "–" : value, value !== null && unit ? el("small", { text: unit }) : null)
+        )
+      );
+    this._tiles.replaceChildren(
+      tile("mdi:receipt-text", "ยอดบิลล่าสุด", lastAmt ? num(lastAmt.state, 2) : null, "บาท"),
+      tile("mdi:lightning-bolt", "หน่วยตามบิลล่าสุด", lastKwh ? num(lastKwh.state, 1) : null, "kWh"),
+      tile(
+        "mdi:eye-off-outline",
+        "ไฟที่ไม่ได้วัด",
+        unm ? num(unm.state, 1) : null,
+        unm && unm.attributes.share_metered_percent != null ? "kWh · วัดได้ " + num(unm.attributes.share_metered_percent, 0) + "%" : "kWh"
+      )
+    );
+  }
+
+  _renderHistory() {
+    const s = this._hass.states["sensor.electricity_bill_bill_history"];
+    const bills = (s && s.attributes && s.attributes.bills) || [];
+    this._history.replaceChildren();
+    if (!bills.length) {
+      this._history.append(el("div", { class: "empty" }, icon("mdi:file-document-outline"), "ยังไม่มีบิลที่บันทึก", el("br"), "ถ่ายรูปบิลใบแรกได้เลย"));
+      return;
+    }
+    const max = Math.max(...bills.map((b) => Number(b.amount) || 0), 1);
+    for (const b of bills) {
+      const d = b.period_end ? new Date(b.period_end + "T12:00:00") : null;
+      const dateTxt = d && !isNaN(d) ? d.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" }) : b.period_end || "–";
+      const armed = this._delArmed === b.period_end;
+      const delBtn = el(
+        "button",
+        {
+          class: "btn small " + (armed ? "danger" : "ghost"),
+          title: "ลบบิลนี้",
+          onclick: () => this._onDelete(b.period_end),
+        },
+        icon(armed ? "mdi:delete-forever" : "mdi:delete-outline"),
+        armed ? "ยืนยันลบ" : null
+      );
+      this._history.append(
+        el(
+          "div",
+          { class: "row" },
+          el("div", {}, el("div", { class: "row-date", text: dateTxt }), el("div", { class: "row-meta", text: num(b.kwh, 1) + " kWh · " + num(b.rate, 2) + " บาท/หน่วย" })),
+          el("div", { class: "row-amt", text: "฿ " + num(b.amount, 2) }),
+          el("div", { class: "bar" }, el("i", { style: "width:" + Math.max(4, Math.round(((Number(b.amount) || 0) / max) * 100)) + "%" })),
+          el("div", { class: "row-actions" }, delBtn)
+        )
+      );
+    }
+  }
+
+  /* ------------------------------ form ------------------------------ */
+  _onInput() {
+    const kwh = parseFloat(this._kwhInput.value);
+    const amt = parseFloat(this._amountInput.value);
+    const okK = !isNaN(kwh) && kwh > 0;
+    const okA = !isNaN(amt) && amt > 0;
+    this._rateVal.textContent = okK && okA ? num(amt / kwh, 2) + " บาท" : "–";
+    this._saveBtn.disabled = !(this._dateInput.value && okK && okA);
+    this._askBox.replaceChildren();
+  }
+
+  _renderNotes() {
+    this._notes.replaceChildren();
+    if (this._scanError) {
+      this._notes.append(el("div", { class: "alert err" }, icon("mdi:alert-circle"), ERROR_MESSAGES[this._scanError] || "สแกนไม่สำเร็จ (" + this._scanError + ") พิมพ์ตัวเลขเองได้"));
+    }
+    if (this._confidence) {
+      const c = ["high", "medium", "low"].includes(this._confidence) ? this._confidence : "low";
+      this._notes.append(el("div", { style: "margin-top:12px" }, el("span", { class: "badge " + c }, icon("mdi:robot-outline"), CONFIDENCE_TEXT[c])));
+    }
+    for (const code of this._warnings) {
+      this._notes.append(el("div", { class: "alert warn" }, icon("mdi:alert"), WARNING_MESSAGES[code] || "คำเตือน: " + code));
+    }
+  }
+
+  /* ------------------------------ image scan ------------------------------ */
+  _resize(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const max = 1600;
+        let w = img.naturalWidth;
+        let h = img.naturalHeight;
+        if (Math.max(w, h) > max) {
+          const k = max / Math.max(w, h);
+          w = Math.round(w * k);
+          h = Math.round(h * k);
+        }
+        const c = document.createElement("canvas");
+        c.width = w;
+        c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        c.toBlob((b) => (b ? resolve(b) : reject(new Error("resize_failed"))), "image/jpeg", 0.85);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("image_load_failed"));
+      };
+      img.src = url;
+    });
+  }
+
+  async _scan(file) {
+    if (this._scanning) return;
+    this._scanning = true;
+    this._scanError = null;
+    this._warnings = [];
+    this._confidence = null;
+    this._renderNotes();
+    this._cameraBtn.disabled = this._galleryBtn.disabled = true;
+
+    if (this._previewUrl) URL.revokeObjectURL(this._previewUrl);
+    this._previewUrl = URL.createObjectURL(file);
+    this._previewImg.src = this._previewUrl;
+    this._preview.classList.add("show", "scanning");
+
+    try {
+      const blob = await this._resize(file);
+      const fd = new FormData();
+      fd.append("file", blob, "bill.jpg");
+      const resp = await this._hass.fetchWithAuth("/api/electricity_bill/scan", { method: "POST", body: fd });
+      let data = null;
+      try {
+        data = await resp.json();
+      } catch (_e) {
+        data = null;
+      }
+      if (data && data.ok && data.result) {
+        const r = data.result;
+        this._fromScan = true;
+        const mark = (input, v) => {
+          if (v === null || v === undefined || v === "") return;
+          input.value = v;
+          input.closest(".input").classList.add("scanned");
+        };
+        mark(this._dateInput, r.period_end);
+        mark(this._kwhInput, r.kwh);
+        mark(this._amountInput, r.amount);
+        this._confidence = r.confidence || "low";
+        this._warnings = Array.isArray(r.warnings) ? r.warnings : [];
+        if (r.period_end == null && r.kwh == null && r.amount == null) this._scanError = "ai_task_failed";
+      } else {
+        this._scanError = (data && data.error) || "scan_failed";
+      }
+    } catch (err) {
+      this._scanError = (err && err.message) || "upload_failed";
+    } finally {
+      this._scanning = false;
+      this._preview.classList.remove("scanning");
+      this._cameraBtn.disabled = this._galleryBtn.disabled = false;
+      this._cameraInput.value = "";
+      this._galleryInput.value = "";
+      this._renderNotes();
+      this._onInput();
+    }
+  }
+
+  /* ------------------------------ save / delete ------------------------------ */
+  async _save(replace) {
+    const period_end = this._dateInput.value;
+    const kwh = parseFloat(this._kwhInput.value);
+    const amount = parseFloat(this._amountInput.value);
+    if (!period_end || !(kwh > 0) || !(amount > 0)) return;
+
+    const s = this._hass.states["sensor.electricity_bill_bill_history"];
+    const exists = ((s && s.attributes.bills) || []).some((b) => b.period_end === period_end);
+    if (exists && !replace) {
+      this._askBox.replaceChildren(
+        el(
+          "div",
+          { class: "alert ask" },
+          el("div", { text: "มีบิลของวันที่นี้อยู่แล้ว ต้องการแทนที่หรือไม่?" }),
+          el(
+            "div",
+            { class: "actions" },
+            el("button", { class: "btn small", onclick: () => this._save(true) }, "แทนที่"),
+            el("button", { class: "btn small ghost", onclick: () => this._askBox.replaceChildren() }, "ยกเลิก")
+          )
+        )
+      );
+      return;
+    }
+
+    this._saveBtn.disabled = true;
+    this._askBox.replaceChildren();
+    try {
+      await this._hass.callService("electricity_bill", "add_bill", {
+        period_end,
+        kwh,
+        amount,
+        note: this._fromScan ? "scan" : "manual",
+        replace: Boolean(replace),
+      });
+      this._toastMsg("บันทึกบิลแล้ว · อัตรา " + num(amount / kwh, 2) + " บาท/หน่วย", false);
+      for (const i of [this._dateInput, this._kwhInput, this._amountInput]) {
+        i.value = "";
+        i.closest(".input").classList.remove("scanned");
+      }
+      this._fromScan = false;
+      this._confidence = null;
+      this._warnings = [];
+      this._scanError = null;
+      this._preview.classList.remove("show");
+      this._renderNotes();
+    } catch (err) {
+      this._toastMsg("บันทึกไม่สำเร็จ: " + ((err && err.message) || err), true);
+    } finally {
+      this._onInput();
+    }
+  }
+
+  async _onDelete(periodEnd) {
+    if (!periodEnd) return;
+    if (this._delArmed !== periodEnd) {
+      this._delArmed = periodEnd;
+      this._sig = "";
+      this._refresh();
+      clearTimeout(this._delTimer);
+      this._delTimer = setTimeout(() => {
+        this._delArmed = null;
+        this._sig = "";
+        if (this._hass) this._refresh();
+      }, 3000);
+      return;
+    }
+    clearTimeout(this._delTimer);
+    this._delArmed = null;
+    try {
+      await this._hass.callService("electricity_bill", "remove_bill", { period_end: periodEnd });
+      this._toastMsg("ลบบิลแล้ว", false);
+    } catch (err) {
+      this._toastMsg("ลบไม่สำเร็จ: " + ((err && err.message) || err), true);
+    }
+    this._sig = "";
+    this._refresh();
+  }
+
+  _toastMsg(text, isErr) {
+    this._toast.textContent = text;
+    this._toast.className = "toast show" + (isErr ? " err" : "");
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => this._toast.classList.remove("show"), 3500);
+  }
+}
+
+if (!customElements.get("electricity-bill-panel")) {
+  customElements.define("electricity-bill-panel", ElectricityBillPanel);
+}

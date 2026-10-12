@@ -25,7 +25,8 @@
         "description": "Update energy sensors and fallback rate.",
         "data": {
           "sources": "Source Energy Sensors",
-          "fallback_rate": "Fallback Rate (THB/kWh)"
+          "fallback_rate": "Fallback Rate (THB/kWh)",
+          "ai_task_entity": "AI Task Entity (Optional)"
         }
       }
     },

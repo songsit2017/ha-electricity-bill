@@ -21,6 +21,7 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_AI_TASK_ENTITY,
     CONF_FALLBACK_RATE,
     CONF_NAME,
     CONF_SOURCES,
@@ -139,28 +140,41 @@ class ElectricityBillOptionsFlow(config_entries.OptionsFlow):
             CONF_FALLBACK_RATE,
             self.config_entry.data.get(CONF_FALLBACK_RATE, DEFAULT_FALLBACK_RATE),
         )
-
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_SOURCES, default=current_sources): EntitySelector(
-                    EntitySelectorConfig(
-                        multiple=True,
-                        domain="sensor",
-                        device_class=SensorDeviceClass.ENERGY,
-                    )
-                ),
-                vol.Optional(
-                    CONF_FALLBACK_RATE, default=current_fallback_rate
-                ): NumberSelector(
-                    NumberSelectorConfig(
-                        min=0.0,
-                        max=100.0,
-                        step=0.01,
-                        mode=NumberSelectorMode.BOX,
-                    )
-                ),
-            }
+        current_ai_task = self.config_entry.options.get(
+            CONF_AI_TASK_ENTITY,
+            self.config_entry.data.get(CONF_AI_TASK_ENTITY),
         )
+
+        options_schema: dict[Any, Any] = {
+            vol.Required(CONF_SOURCES, default=current_sources): EntitySelector(
+                EntitySelectorConfig(
+                    multiple=True,
+                    domain="sensor",
+                    device_class=SensorDeviceClass.ENERGY,
+                )
+            ),
+            vol.Optional(
+                CONF_FALLBACK_RATE, default=current_fallback_rate
+            ): NumberSelector(
+                NumberSelectorConfig(
+                    min=0.0,
+                    max=100.0,
+                    step=0.01,
+                    mode=NumberSelectorMode.BOX,
+                )
+            ),
+        }
+
+        if current_ai_task:
+            options_schema[
+                vol.Optional(CONF_AI_TASK_ENTITY, default=current_ai_task)
+            ] = EntitySelector(EntitySelectorConfig(domain="ai_task"))
+        else:
+            options_schema[
+                vol.Optional(CONF_AI_TASK_ENTITY)
+            ] = EntitySelector(EntitySelectorConfig(domain="ai_task"))
+
+        schema = vol.Schema(options_schema)
 
         return self.async_show_form(
             step_id="init",

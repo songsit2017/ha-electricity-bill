@@ -5,7 +5,8 @@ dependencies, allowing it to be tested in any standard Python environment.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+import re
 from typing import Any
 
 
@@ -275,3 +276,127 @@ def format_bill_history(
         })
 
     return history
+
+
+def validate_extraction(
+    data: dict[str, Any] | None,
+    today: date | None = None,
+) -> dict[str, Any]:
+    """Validate and normalize bill data extracted by AI task.
+
+    Pure validation helper with no Home Assistant dependencies.
+    Rules:
+    - parse date strictly, subtract 543 if year > 2400, reject future date > today+1
+      (warning 'date_in_future' and null the date)
+    - kwh must be 0 < v <= 5000 else null + warning 'kwh_out_of_range'
+    - amount must be 0 < v <= 100000 else null + warning 'amount_out_of_range'
+    - if both present and amount/kwh is outside 1.5..12 THB/kWh add warning 'rate_unusual'
+    - handles numeric strings with commas (e.g. '1,385.12')
+    - handles all-null input
+    """
+    if today is None:
+        today = date.today()
+
+    input_data = data if isinstance(data, dict) else {}
+    warnings: list[str] = []
+
+    # 1. Parse date
+    period_end: str | None = None
+    raw_date = input_data.get("period_end")
+
+    parsed_date: date | None = None
+    if isinstance(raw_date, datetime):
+        parsed_date = raw_date.date()
+    elif isinstance(raw_date, date):
+        parsed_date = raw_date
+    elif isinstance(raw_date, str) and raw_date.strip():
+        s = raw_date.strip()
+        m = re.match(r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$", s)
+        if m:
+            try:
+                y = int(m.group(1))
+                mon = int(m.group(2))
+                d = int(m.group(3))
+                if y > 2400:
+                    y -= 543
+                parsed_date = date(y, mon, d)
+            except ValueError:
+                parsed_date = None
+
+    if parsed_date is not None and parsed_date.year > 2400:
+        try:
+            parsed_date = date(parsed_date.year - 543, parsed_date.month, parsed_date.day)
+        except ValueError:
+            parsed_date = None
+
+    if parsed_date is not None:
+        if parsed_date > today + timedelta(days=1):
+            period_end = None
+            warnings.append("date_in_future")
+        else:
+            period_end = parsed_date.isoformat()
+    else:
+        period_end = None
+
+    # Helper for numeric parsing
+    def _parse_num(val: Any) -> float | None:
+        if val is None:
+            return None
+        if isinstance(val, (int, float)):
+            return float(val)
+        if isinstance(val, str):
+            clean = val.replace(",", "").strip()
+            if not clean:
+                return None
+            try:
+                return float(clean)
+            except (ValueError, TypeError):
+                return None
+        return None
+
+    # 2. Parse kwh (0 < v <= 5000)
+    kwh: float | None = None
+    raw_kwh = input_data.get("kwh")
+    if raw_kwh is not None and str(raw_kwh).strip() != "":
+        num_kwh = _parse_num(raw_kwh)
+        if num_kwh is not None and 0 < num_kwh <= 5000:
+            kwh = round(num_kwh, 4)
+        else:
+            kwh = None
+            warnings.append("kwh_out_of_range")
+    else:
+        kwh = None
+
+    # 3. Parse amount (0 < v <= 100000)
+    amount: float | None = None
+    raw_amount = input_data.get("amount")
+    if raw_amount is not None and str(raw_amount).strip() != "":
+        num_amount = _parse_num(raw_amount)
+        if num_amount is not None and 0 < num_amount <= 100000:
+            amount = round(num_amount, 2)
+        else:
+            amount = None
+            warnings.append("amount_out_of_range")
+    else:
+        amount = None
+
+    # 4. Unusual rate warning: 1.5 <= rate <= 12.0
+    if kwh is not None and amount is not None and kwh > 0:
+        rate = amount / kwh
+        if rate < 1.5 or rate > 12.0:
+            warnings.append("rate_unusual")
+
+    # 5. Confidence
+    raw_conf = input_data.get("confidence")
+    if isinstance(raw_conf, str) and raw_conf.strip().lower() in ("low", "medium", "high"):
+        confidence = raw_conf.strip().lower()
+    else:
+        confidence = "low"
+
+    return {
+        "period_end": period_end,
+        "kwh": kwh,
+        "amount": amount,
+        "confidence": confidence,
+        "warnings": warnings,
+    }

@@ -7,8 +7,10 @@ from typing import Any
 import uuid
 from zoneinfo import ZoneInfo
 
+from pathlib import Path
 import voluptuous as vol
 
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
@@ -18,6 +20,8 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
+
+from .views import ScanView
 
 from .calc import (
     add_bill_record,
@@ -486,6 +490,41 @@ async def async_setup_entry(
 
     await async_setup_services(hass)
 
+    hass.data.setdefault(DOMAIN, {})
+
+    # Register API scan view once
+    if not hass.data[DOMAIN].get("view_registered"):
+        hass.http.register_view(ScanView)
+        hass.data[DOMAIN]["view_registered"] = True
+
+    # Register static path for custom panel once
+    if not hass.data[DOMAIN].get("static_path_registered"):
+        frontend_path = Path(__file__).parent / "frontend"
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig("/electricity_bill_panel", str(frontend_path), cache_headers=False)]
+        )
+        hass.data[DOMAIN]["static_path_registered"] = True
+
+    # Register custom panel once
+    if not hass.data[DOMAIN].get("panel_registered"):
+        try:
+            from homeassistant.components.panel_custom import async_register_panel
+
+            await async_register_panel(
+                hass,
+                webcomponent_name="electricity-bill-panel",
+                frontend_url_path="electricity",
+                module_url="/electricity_bill_panel/panel.js",
+                sidebar_title="ค่าไฟ",
+                sidebar_icon="mdi:flash",
+                require_admin=False,
+                config={},
+                embed_iframe=False,
+            )
+            hass.data[DOMAIN]["panel_registered"] = True
+        except Exception as err:
+            _LOGGER.warning("Could not register electricity panel: %s", err)
+
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     return True
@@ -501,7 +540,7 @@ async def async_unload_entry(
 
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
-    # If this was the last entry, remove services
+    # If this was the last entry, remove services and panel
     entries = hass.config_entries.async_entries(DOMAIN)
     if len(entries) <= 1:
         if hass.services.has_service(DOMAIN, SERVICE_ADD_BILL):
@@ -510,6 +549,15 @@ async def async_unload_entry(
             hass.services.async_remove(DOMAIN, SERVICE_REMOVE_BILL)
         if hass.services.has_service(DOMAIN, SERVICE_RESET_CYCLE):
             hass.services.async_remove(DOMAIN, SERVICE_RESET_CYCLE)
+
+        try:
+            from homeassistant.components.frontend import async_remove_panel
+
+            async_remove_panel(hass, "electricity")
+            if DOMAIN in hass.data:
+                hass.data[DOMAIN]["panel_registered"] = False
+        except Exception as err:
+            _LOGGER.warning("Could not remove electricity panel: %s", err)
 
     return unload_ok
 

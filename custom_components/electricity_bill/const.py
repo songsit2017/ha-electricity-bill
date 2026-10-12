@@ -7,6 +7,7 @@ DOMAIN = "electricity_bill"
 CONF_NAME = "name"
 CONF_SOURCES = "sources"
 CONF_FALLBACK_RATE = "fallback_rate"
+CONF_AI_TASK_ENTITY = "ai_task_entity"
 
 # Defaults
 DEFAULT_NAME = "Electricity Bill"

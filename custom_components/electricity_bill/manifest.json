@@ -1,0 +1,14 @@
+{
+  "domain": "electricity_bill",
+  "name": "Electricity Bill",
+  "version": "0.1.0",
+  "config_flow": true,
+  "documentation": "https://github.com/example/electricity_bill",
+  "issue_tracker": "https://github.com/example/electricity_bill/issues",
+  "dependencies": [
+    "recorder"
+  ],
+  "codeowners": [],
+  "requirements": [],
+  "iot_class": "calculated"
+}

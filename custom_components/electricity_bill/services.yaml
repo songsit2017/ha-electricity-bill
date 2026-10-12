@@ -1,0 +1,44 @@
+add_bill:
+  fields:
+    period_end:
+      required: false
+      selector:
+        date: {}
+    kwh:
+      required: true
+      selector:
+        number:
+          min: 0.01
+          step: 0.01
+          mode: box
+          unit_of_measurement: kWh
+    amount:
+      required: true
+      selector:
+        number:
+          min: 0.01
+          step: 0.01
+          mode: box
+          unit_of_measurement: THB
+    note:
+      required: false
+      selector:
+        text: {}
+    replace:
+      required: false
+      default: false
+      selector:
+        boolean: {}
+
+remove_bill:
+  fields:
+    id:
+      required: false
+      selector:
+        text: {}
+    period_end:
+      required: false
+      selector:
+        date: {}
+
+reset_cycle: {}

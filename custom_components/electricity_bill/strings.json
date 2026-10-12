@@ -1,0 +1,130 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Electricity Bill",
+        "description": "Configure electricity bill tracker and select source energy sensors.",
+        "data": {
+          "name": "Name",
+          "sources": "Source Energy Sensors",
+          "fallback_rate": "Fallback Rate (THB/kWh)"
+        }
+      }
+    },
+    "error": {
+      "no_sources": "Please select at least one energy sensor."
+    },
+    "abort": {
+      "already_configured": "Only one instance of Electricity Bill is allowed."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Electricity Bill Options",
+        "description": "Update energy sensors and fallback rate.",
+        "data": {
+          "sources": "Source Energy Sensors",
+          "fallback_rate": "Fallback Rate (THB/kWh)"
+        }
+      }
+    },
+    "error": {
+      "no_sources": "Please select at least one energy sensor."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "cycle_kwh": {
+        "name": "Cycle Energy"
+      },
+      "effective_rate": {
+        "name": "Effective Rate"
+      },
+      "cycle_cost_estimate": {
+        "name": "Cycle Cost Estimate"
+      },
+      "last_bill_amount": {
+        "name": "Last Bill Amount"
+      },
+      "last_bill_kwh": {
+        "name": "Last Bill Energy"
+      },
+      "last_bill_unmetered_kwh": {
+        "name": "Last Bill Unmetered Energy"
+      },
+      "bill_history": {
+        "name": "Bill History"
+      }
+    }
+  },
+  "services": {
+    "add_bill": {
+      "name": "Add Bill",
+      "description": "Record a monthly electricity bill, update unit rate, and reset cycle baseline.",
+      "fields": {
+        "period_end": {
+          "name": "Period End Date",
+          "description": "Last day of the billing period the bill covers (YYYY-MM-DD, defaults to today)."
+        },
+        "kwh": {
+          "name": "Total kWh",
+          "description": "Total energy in kWh from the bill."
+        },
+        "amount": {
+          "name": "Total Amount",
+          "description": "Total amount billed in THB."
+        },
+        "note": {
+          "name": "Note",
+          "description": "Optional note or comment."
+        },
+        "replace": {
+          "name": "Replace",
+          "description": "Allow overwriting an existing bill with the same period end date."
+        }
+      }
+    },
+    "remove_bill": {
+      "name": "Remove Bill",
+      "description": "Remove a bill by ID or period end date.",
+      "fields": {
+        "id": {
+          "name": "Bill ID",
+          "description": "UUID of the bill to remove."
+        },
+        "period_end": {
+          "name": "Period End Date",
+          "description": "Period end date of the bill to remove (YYYY-MM-DD)."
+        }
+      }
+    },
+    "reset_cycle": {
+      "name": "Reset Cycle",
+      "description": "Reset cycle baseline to current sensor states without recording a bill."
+    }
+  },
+  "exceptions": {
+    "duplicate_period_end": {
+      "message": "A bill with period end {period_end} already exists. Pass replace: true to overwrite."
+    },
+    "invalid_kwh": {
+      "message": "kWh must be greater than zero."
+    },
+    "invalid_amount": {
+      "message": "Amount must be greater than zero."
+    },
+    "invalid_date": {
+      "message": "Invalid date format for period_end. Expected YYYY-MM-DD."
+    },
+    "bill_not_found": {
+      "message": "Bill with the specified ID or period end was not found."
+    },
+    "missing_bill_identifier": {
+      "message": "Either id or period_end must be provided to remove a bill."
+    },
+    "no_energy_sources": {
+      "message": "No energy sources configured."
+    }
+  }
+}

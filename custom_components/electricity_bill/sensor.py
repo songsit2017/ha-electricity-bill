@@ -11,12 +11,14 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import CURRENCY_THB, UnitOfEnergy
+from homeassistant.const import UnitOfEnergy
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import ElectricityBillConfigEntry, ElectricityBillCoordinator
+
+CURRENCY_THB = "THB"
 
 
 @dataclass(frozen=True, kw_only=True)

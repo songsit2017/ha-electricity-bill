@@ -11,18 +11,28 @@ _LOGGER = logging.getLogger(__name__)
 
 PROMPT = (
     "Extract data from this Thai electricity bill (MEA / PEA):\n"
-    "1. period_end: The end date of the billing period or the date of the latest meter reading, "
-    "formatted as ISO YYYY-MM-DD in the Gregorian calendar. If the bill uses the Buddhist Era (BE year > 2400), "
-    "subtract 543 to convert to Gregorian (e.g., 2567 -> 2024, 2568 -> 2025, 2569 -> 2026).\n"
-    "2. kwh: Total units consumed this billing period in kWh (หน่วยที่ใช้ / จำนวนหน่วย).\n"
-    "3. amount: Total amount to pay this month in THB including VAT (รวมเงินค่าไฟฟ้า / ยอดที่ต้องชำระเดือนนี้). "
+    "1. period_start: The start date of the billing period as ISO YYYY-MM-DD in Gregorian calendar. "
+    "If the bill uses Buddhist Era (BE year > 2400), subtract 543 to convert to Gregorian (e.g., 2567 -> 2024, 2568 -> 2025, 2569 -> 2026).\n"
+    "2. period_end: The end date of the billing period or the date of the latest meter reading, "
+    "formatted as ISO YYYY-MM-DD in the Gregorian calendar. If BE year > 2400, subtract 543.\n"
+    "3. kwh: Total units consumed this billing period in kWh (หน่วยที่ใช้ / จำนวนหน่วย).\n"
+    "4. amount: Total amount to pay this month in THB including VAT (รวมเงินค่าไฟฟ้า / ยอดที่ต้องชำระเดือนนี้). "
     "Do NOT include arrears, unpaid prior balances, or cumulative balances.\n"
-    "4. confidence: Assessment of extraction confidence: 'low', 'medium', or 'high'.\n"
-    "5. notes: Short explanation or notes if anything is ambiguous or blurry.\n\n"
+    "5. energy_charge: Base electricity / energy charge in THB (ค่าไฟฟ้าฐาน / ค่าพลังงานไฟฟ้า).\n"
+    "6. ft_charge: Fuel adjustment charge (Ft) in THB (ค่าไฟฟ้าผันแปร / ค่า Ft, may be negative).\n"
+    "7. service_charge: Monthly service charge in THB (ค่าบริการรายเดือน).\n"
+    "8. vat: 7% VAT in THB (ภาษีมูลค่าเพิ่ม 7%).\n"
+    "9. confidence: Assessment of extraction confidence: 'low', 'medium', or 'high'.\n"
+    "10. notes: Short explanation or notes if anything is ambiguous or blurry.\n\n"
     "Use null for any field that is not clearly readable. Never guess or hallucinate values."
 )
 
 STRUCTURE: dict[str, Any] = {
+    "period_start": {
+        "description": "Start date of billing period as YYYY-MM-DD (Gregorian)",
+        "required": False,
+        "selector": {"text": None},
+    },
     "period_end": {
         "description": "End date of billing period or meter reading date as YYYY-MM-DD (Gregorian)",
         "required": False,
@@ -35,6 +45,26 @@ STRUCTURE: dict[str, Any] = {
     },
     "amount": {
         "description": "Total amount to pay this month in THB including VAT (รวมเงินค่าไฟฟ้า / ยอดที่ต้องชำระเดือนนี้)",
+        "required": False,
+        "selector": {"number": {"min": 0, "max": 100000, "step": "any"}},
+    },
+    "energy_charge": {
+        "description": "Base energy charge in THB (ค่าไฟฟ้าฐาน / ค่าพลังงานไฟฟ้า)",
+        "required": False,
+        "selector": {"number": {"min": 0, "max": 100000, "step": "any"}},
+    },
+    "ft_charge": {
+        "description": "Fuel adjustment charge (Ft) in THB, may be negative (ค่าไฟฟ้าผันแปร / ค่า Ft)",
+        "required": False,
+        "selector": {"number": {"min": -100000, "max": 100000, "step": "any"}},
+    },
+    "service_charge": {
+        "description": "Monthly service charge in THB (ค่าบริการรายเดือน)",
+        "required": False,
+        "selector": {"number": {"min": 0, "max": 100000, "step": "any"}},
+    },
+    "vat": {
+        "description": "7% VAT in THB (ภาษีมูลค่าเพิ่ม 7%)",
         "required": False,
         "selector": {"number": {"min": 0, "max": 100000, "step": "any"}},
     },

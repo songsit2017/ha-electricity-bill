@@ -1,12 +1,13 @@
 /**
  * Electricity Bill - sidebar panel for Home Assistant (vanilla web component, no build step).
- * Status overview, photo scan via AI Task, editable form, bill history.
+ * Status overview, photo scan via AI Task, editable form, bill history with expandable details.
  * All dynamic text is inserted with textContent / createElement (never innerHTML with data).
  */
 
 const WARNING_MESSAGES = {
   rate_unusual: "อัตราค่าไฟต่อหน่วยดูผิดปกติ (นอกช่วง 1.5 – 12 บาท) ตรวจตัวเลขอีกครั้ง",
   date_in_future: "วันที่สิ้นสุดรอบบิลเป็นวันในอนาคต กรุณาตรวจวันที่",
+  invalid_period: "วันเริ่มต้นรอบบิลต้องไม่เกินวันสิ้นสุดรอบบิล",
   kwh_out_of_range: "จำนวนหน่วยอยู่นอกช่วงปกติ (1 – 5,000 kWh)",
   amount_out_of_range: "ยอดเงินอยู่นอกช่วงปกติ (1 – 100,000 บาท)",
 };
@@ -150,10 +151,42 @@ const STYLE = `
   .input:focus-within { border-color: var(--eb-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--eb-accent) 22%, transparent); }
   .input input {
     flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
-    font: inherit; font-size: 17px; color: var(--primary-text-color); padding: 12px 0;
+    font: inherit; font-size: 16px; color: var(--primary-text-color); padding: 12px 0;
   }
   .input .unit { color: var(--eb-muted); font-size: 14px; }
   .input.scanned { border-color: color-mix(in srgb, var(--success-color, #43a047) 70%, transparent); }
+
+  /* Collapsible optional details section */
+  .details-box {
+    margin-top: 14px;
+    border: 1.5px solid var(--eb-line);
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--eb-card) 60%, var(--eb-soft));
+    overflow: hidden;
+  }
+  .details-box summary {
+    padding: 12px 14px;
+    cursor: pointer;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--eb-accent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    user-select: none;
+    outline: none;
+  }
+  .details-box summary:hover {
+    background: var(--eb-soft);
+  }
+  .details-box[open] summary {
+    border-bottom: 1px solid var(--eb-line);
+  }
+  .details-body {
+    padding: 14px;
+    display: grid;
+    gap: 12px;
+  }
 
   .rate {
     margin-top: 12px; padding: 12px 16px; border-radius: 14px;
@@ -172,18 +205,132 @@ const STYLE = `
   .alert.ask { background: color-mix(in srgb, var(--eb-accent) 12%, transparent); flex-direction: column; }
   .alert .actions { display: flex; gap: 8px; }
 
-  .history { display: grid; gap: 4px; }
-  .row {
-    display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center;
-    padding: 12px 6px; border-bottom: 1px solid var(--eb-line);
+  /* History list with expandable items */
+  .history { display: grid; gap: 8px; }
+  .row-item {
+    border: 1px solid var(--eb-line);
+    border-radius: 14px;
+    background: var(--eb-card);
+    overflow: hidden;
+    transition: border-color .15s, box-shadow .15s;
   }
-  .row:last-child { border-bottom: 0; }
-  .row-date { font-weight: 600; }
-  .row-amt { font-weight: 700; font-size: 17px; text-align: right; }
-  .row-meta { font-size: 12.5px; color: var(--eb-muted); }
-  .bar { grid-column: 1 / -1; height: 7px; border-radius: 999px; background: var(--eb-soft); overflow: hidden; }
+  .row-item:hover {
+    border-color: color-mix(in srgb, var(--eb-accent) 40%, var(--eb-line));
+  }
+  .row-main {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 8px 10px;
+    align-items: center;
+    padding: 12px 14px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .row-left { min-width: 0; }
+  .row-date { font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 6px; }
+  .row-meta { font-size: 12.5px; color: var(--eb-muted); margin-top: 2px; }
+  .row-right { text-align: right; }
+  .row-amt { font-weight: 700; font-size: 16px; }
+  .row-chevron {
+    color: var(--eb-muted);
+    transition: transform .2s ease;
+    display: grid; place-items: center;
+  }
+  .row-item.expanded .row-chevron {
+    transform: rotate(180deg);
+  }
+  .bar-box { padding: 0 14px 10px; }
+  .bar { height: 6px; border-radius: 999px; background: var(--eb-soft); overflow: hidden; }
   .bar i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--eb-accent), var(--eb-accent-2)); }
-  .row-actions { display: flex; justify-content: flex-end; }
+
+  /* Expanded history details */
+  .row-expanded {
+    border-top: 1px solid var(--eb-line);
+    background: var(--eb-soft);
+    padding: 14px;
+    display: grid;
+    gap: 12px;
+    font-size: 13px;
+  }
+  .row-period {
+    font-weight: 600;
+    color: var(--eb-muted);
+    font-size: 12.5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 8px 12px;
+  }
+  .stat-card {
+    background: var(--eb-card);
+    border: 1px solid var(--eb-line);
+    border-radius: 10px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .stat-label { font-size: 11.5px; color: var(--eb-muted); }
+  .stat-val { font-size: 14px; font-weight: 650; display: flex; align-items: center; gap: 4px; }
+  .stat-val.diff-up { color: var(--error-color, #c62828); }
+  .stat-val.diff-down { color: var(--success-color, #2e7d32); }
+
+  .charges-box {
+    background: var(--eb-card);
+    border: 1px solid var(--eb-line);
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: grid;
+    gap: 6px;
+  }
+  .charges-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--eb-muted);
+    margin-bottom: 2px;
+  }
+  .charge-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    padding: 2px 0;
+  }
+  .charge-row:not(:last-child) {
+    border-bottom: 1px dashed var(--eb-line);
+  }
+  .charge-val { font-weight: 600; }
+
+  .mismatch-alert {
+    background: rgba(251,140,0,.15);
+    color: #bf5b00;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 12.5px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .note-box {
+    font-size: 12.5px;
+    color: var(--eb-muted);
+    font-style: italic;
+    padding: 2px 4px;
+    word-break: break-word;
+  }
+
+  .row-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 4px;
+  }
+
   .empty { text-align: center; color: var(--eb-muted); padding: 28px 8px; }
   .empty ha-icon { --mdc-icon-size: 44px; opacity: .5; display: block; margin: 0 auto 6px; }
 
@@ -197,7 +344,12 @@ const STYLE = `
   .toast.err { background: #c62828; }
   .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; animation: rot .8s linear infinite; }
   @keyframes rot { to { transform: rotate(360deg); } }
-  @media (max-width: 520px) { .page { padding: 12px 12px 40px; } .hero { padding: 20px; } }
+  @media (max-width: 520px) {
+    .page { padding: 12px 12px 40px; }
+    .hero { padding: 20px; }
+    .row-main { grid-template-columns: 1fr auto auto; padding: 10px 12px; }
+    .row-amt { font-size: 15px; }
+  }
 `;
 
 function el(tag, props = {}, ...children) {
@@ -236,6 +388,7 @@ class ElectricityBillPanel extends HTMLElement {
     this._delArmed = null;
     this._previewUrl = null;
     this._toastTimer = null;
+    this._expandedIds = new Set();
   }
 
   set hass(h) {
@@ -323,21 +476,63 @@ class ElectricityBillPanel extends HTMLElement {
     });
 
     this._notes = el("div"); // errors / warnings / confidence
+
+    // Primary required inputs
     this._dateInput = el("input", { type: "date" });
     this._kwhInput = el("input", { type: "number", step: "any", min: "0", inputmode: "decimal", placeholder: "0.00" });
     this._amountInput = el("input", { type: "number", step: "any", min: "0", inputmode: "decimal", placeholder: "0.00" });
-    for (const i of [this._dateInput, this._kwhInput, this._amountInput]) {
+
+    // Optional detailed inputs
+    this._startDateInput = el("input", { type: "date" });
+    this._energyChargeInput = el("input", { type: "number", step: "any", min: "0", inputmode: "decimal", placeholder: "0.00" });
+    this._ftChargeInput = el("input", { type: "number", step: "any", inputmode: "decimal", placeholder: "0.00" });
+    this._serviceChargeInput = el("input", { type: "number", step: "any", min: "0", inputmode: "decimal", placeholder: "0.00" });
+    this._vatInput = el("input", { type: "number", step: "any", min: "0", inputmode: "decimal", placeholder: "0.00" });
+    this._noteInput = el("input", { type: "text", placeholder: "เช่น บิลเดือน ต.ค." });
+
+    const allInputs = [
+      this._dateInput,
+      this._kwhInput,
+      this._amountInput,
+      this._startDateInput,
+      this._energyChargeInput,
+      this._ftChargeInput,
+      this._serviceChargeInput,
+      this._vatInput,
+      this._noteInput,
+    ];
+    for (const i of allInputs) {
       i.addEventListener("input", () => {
-        i.closest(".input").classList.remove("scanned");
+        const wrap = i.closest(".input");
+        if (wrap) wrap.classList.remove("scanned");
         this._pendingReplace = false;
         this._onInput();
       });
     }
+
     const field = (label, input, unit) =>
       el("div", { class: "field" }, el("label", { text: label }), el("div", { class: "input" }, input, unit ? el("span", { class: "unit", text: unit }) : null));
+
     this._rateVal = el("b", { text: "–" });
     this._askBox = el("div");
     this._saveBtn = el("button", { class: "btn block", disabled: true, onclick: () => this._save(false) }, icon("mdi:content-save"), "บันทึกบิล");
+
+    // Collapsible optional details section
+    this._detailsEl = el(
+      "details",
+      { class: "details-box" },
+      el("summary", {}, icon("mdi:tune-variant"), "รายละเอียดเพิ่มเติม (ไม่บังคับ)"),
+      el(
+        "div",
+        { class: "details-body" },
+        field("วันเริ่มต้นรอบบิล", this._startDateInput, null),
+        field("ค่าไฟฟ้าฐาน / ค่าพลังงานไฟฟ้า", this._energyChargeInput, "บาท"),
+        field("ค่าไฟฟ้าผันแปร (Ft)", this._ftChargeInput, "บาท"),
+        field("ค่าบริการรายเดือน", this._serviceChargeInput, "บาท"),
+        field("ภาษีมูลค่าเพิ่ม 7%", this._vatInput, "บาท"),
+        field("หมายเหตุ", this._noteInput, null)
+      )
+    );
 
     const addCard = el(
       "div",
@@ -352,7 +547,8 @@ class ElectricityBillPanel extends HTMLElement {
         { class: "fields" },
         field("วันสิ้นสุดรอบบิล", this._dateInput, null),
         field("จำนวนหน่วยที่ใช้", this._kwhInput, "kWh"),
-        field("ยอดเงินรวมทั้งสิ้น", this._amountInput, "บาท")
+        field("ยอดเงินรวมทั้งสิ้น", this._amountInput, "บาท"),
+        this._detailsEl
       ),
       el("div", { class: "rate" }, el("span", { text: "อัตราค่าไฟจริงต่อหน่วย" }), el("span", {}, this._rateVal)),
       this._askBox,
@@ -365,7 +561,7 @@ class ElectricityBillPanel extends HTMLElement {
       "div",
       { class: "card" },
       el("h2", {}, icon("mdi:history"), "ประวัติบิล"),
-      el("p", { class: "hint", text: "บิลที่บันทึกไว้ เรียงจากล่าสุด" }),
+      el("p", { class: "hint", text: "บิลที่บันทึกไว้ เรียงจากล่าสุด (กดที่แถวเพื่อดูรายละเอียด)" }),
       this._history
     );
 
@@ -390,13 +586,18 @@ class ElectricityBillPanel extends HTMLElement {
       "sensor.electricity_bill_last_bill_unmetered_energy",
       "sensor.electricity_bill_bill_history",
     ];
-    const sig = ids
-      .map((i) => {
-        const s = this._hass.states[i];
-        return s ? s.state + "|" + s.last_updated : "-";
-      })
-      .join(";") + "|" + this._delArmed;
-    if (sig === this._sig) return; // nothing relevant changed: avoid re-rendering on every HA update
+    const sig =
+      ids
+        .map((i) => {
+          const s = this._hass.states[i];
+          return s ? s.state + "|" + s.last_updated : "-";
+        })
+        .join(";") +
+      "|" +
+      this._delArmed +
+      "|" +
+      Array.from(this._expandedIds).join(",");
+    if (sig === this._sig) return; // nothing relevant changed
     this._sig = sig;
     this._renderStatus();
     this._renderHistory();
@@ -466,27 +667,162 @@ class ElectricityBillPanel extends HTMLElement {
     for (const b of bills) {
       const d = b.period_end ? new Date(b.period_end + "T12:00:00") : null;
       const dateTxt = d && !isNaN(d) ? d.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" }) : b.period_end || "–";
+      const rowKey = b.id || b.period_end;
+      const isExpanded = this._expandedIds.has(rowKey);
       const armed = this._delArmed === b.period_end;
+
       const delBtn = el(
         "button",
         {
           class: "btn small " + (armed ? "danger" : "ghost"),
           title: "ลบบิลนี้",
-          onclick: () => this._onDelete(b.period_end),
+          onclick: (e) => {
+            e.stopPropagation();
+            this._onDelete(b.period_end);
+          },
         },
         icon(armed ? "mdi:delete-forever" : "mdi:delete-outline"),
         armed ? "ยืนยันลบ" : null
       );
-      this._history.append(
+
+      // Main one-line summary
+      const rowMain = el(
+        "div",
+        {
+          class: "row-main",
+          onclick: () => {
+            if (this._expandedIds.has(rowKey)) {
+              this._expandedIds.delete(rowKey);
+            } else {
+              this._expandedIds.add(rowKey);
+            }
+            this._sig = "";
+            this._refresh();
+          },
+        },
         el(
           "div",
-          { class: "row" },
-          el("div", {}, el("div", { class: "row-date", text: dateTxt }), el("div", { class: "row-meta", text: num(b.kwh, 1) + " kWh · " + num(b.rate, 2) + " บาท/หน่วย" })),
-          el("div", { class: "row-amt", text: "฿ " + num(b.amount, 2) }),
-          el("div", { class: "bar" }, el("i", { style: "width:" + Math.max(4, Math.round(((Number(b.amount) || 0) / max) * 100)) + "%" })),
-          el("div", { class: "row-actions" }, delBtn)
-        )
+          { class: "row-left" },
+          el("div", { class: "row-date" }, dateTxt),
+          el("div", { class: "row-meta", text: num(b.kwh, 1) + " kWh · " + num(b.rate, 2) + " บาท/หน่วย" })
+        ),
+        el(
+          "div",
+          { class: "row-right" },
+          el("div", { class: "row-amt", text: "฿ " + num(b.amount, 2) })
+        ),
+        el("div", { class: "row-chevron" }, icon("mdi:chevron-down"))
       );
+
+      const barBox = el(
+        "div",
+        { class: "bar-box" },
+        el("div", { class: "bar" }, el("i", { style: "width:" + Math.max(4, Math.round(((Number(b.amount) || 0) / max) * 100)) + "%" }))
+      );
+
+      const rowEl = el("div", { class: "row-item" + (isExpanded ? " expanded" : "") }, rowMain, barBox);
+
+      // Expanded section
+      if (isExpanded) {
+        // 1. Period formatting
+        let periodTxt = "";
+        if (b.period_start && b.period_end) {
+          const sDate = new Date(b.period_start + "T12:00:00");
+          const sTxt = !isNaN(sDate) ? sDate.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" }) : b.period_start;
+          periodTxt = `${sTxt} – ${dateTxt}` + (b.days != null ? ` (${b.days} วัน)` : "");
+        } else {
+          periodTxt = `วันสิ้นสุดรอบบิล: ${dateTxt}` + (b.days != null ? ` (${b.days} วัน)` : "");
+        }
+
+        // 2. Diff badges (green down arrow / red up arrow)
+        const formatDiff = (val) => {
+          if (val == null) return el("span", { text: "–" });
+          if (val > 0) {
+            return el("span", { class: "diff-up" }, icon("mdi:arrow-up"), `+${num(val, 1)}%`);
+          }
+          if (val < 0) {
+            return el("span", { class: "diff-down" }, icon("mdi:arrow-down"), `${num(val, 1)}%`);
+          }
+          return el("span", { text: "0.0%" });
+        };
+
+        const statsGrid = el(
+          "div",
+          { class: "stats-grid" },
+          el(
+            "div",
+            { class: "stat-card" },
+            el("span", { class: "stat-label", text: "หน่วย/วัน" }),
+            el("span", { class: "stat-val", text: b.kwh_per_day != null ? num(b.kwh_per_day, 2) + " kWh" : "–" })
+          ),
+          el(
+            "div",
+            { class: "stat-card" },
+            el("span", { class: "stat-label", text: "บาท/วัน" }),
+            el("span", { class: "stat-val", text: b.baht_per_day != null ? "฿" + num(b.baht_per_day, 2) : "–" })
+          ),
+          el(
+            "div",
+            { class: "stat-card" },
+            el("span", { class: "stat-label", text: "ยอดเงิน vs ก่อนหน้า" }),
+            el("span", { class: "stat-val" }, formatDiff(b.amount_change_pct))
+          ),
+          el(
+            "div",
+            { class: "stat-card" },
+            el("span", { class: "stat-label", text: "หน่วย vs ก่อนหน้า" }),
+            el("span", { class: "stat-val" }, formatDiff(b.kwh_change_pct))
+          )
+        );
+
+        // 3. The four items (show "-" when null)
+        const chargeRow = (label, val, unit = "บาท") => {
+          let displayVal = "–";
+          if (val !== null && val !== undefined) {
+            displayVal = (val > 0 && label.includes("Ft") ? "+" : "") + num(val, 2) + " " + unit;
+          }
+          return el("div", { class: "charge-row" }, el("span", { text: label }), el("span", { class: "charge-val", text: displayVal }));
+        };
+
+        const chargesBox = el(
+          "div",
+          { class: "charges-box" },
+          el("div", { class: "charges-title", text: "รายละเอียดรายการค่าไฟ" }),
+          chargeRow("ค่าไฟฟ้าฐาน / ค่าพลังงานไฟฟ้า", b.energy_charge),
+          chargeRow("ค่าไฟฟ้าผันแปร (Ft)", b.ft_charge),
+          chargeRow("ค่าบริการรายเดือน", b.service_charge),
+          chargeRow("ภาษีมูลค่าเพิ่ม 7%", b.vat)
+        );
+
+        const expandedChildren = [
+          el("div", { class: "row-period" }, icon("mdi:calendar-range"), periodTxt),
+          statsGrid,
+          chargesBox,
+        ];
+
+        // 4. Mismatch warning line when items_mismatch
+        if (b.items_mismatch) {
+          expandedChildren.push(
+            el("div", { class: "mismatch-alert" }, icon("mdi:alert"), "ผลรวมรายการไม่ตรงกับยอดรวม")
+          );
+        }
+
+        // 5. Note
+        if (b.note && b.note.trim()) {
+          expandedChildren.push(
+            el("div", { class: "note-box" }, icon("mdi:note-text-outline"), " " + b.note)
+          );
+        }
+
+        // 6. Row actions (delete button)
+        expandedChildren.push(
+          el("div", { class: "row-actions" }, delBtn)
+        );
+
+        rowEl.append(el("div", { class: "row-expanded" }, ...expandedChildren));
+      }
+
+      this._history.append(rowEl);
     }
   }
 
@@ -573,13 +909,30 @@ class ElectricityBillPanel extends HTMLElement {
         const r = data.result;
         this._fromScan = true;
         const mark = (input, v) => {
-          if (v === null || v === undefined || v === "") return;
+          if (v === null || v === undefined || v === "") return false;
           input.value = v;
-          input.closest(".input").classList.add("scanned");
+          const wrap = input.closest(".input");
+          if (wrap) wrap.classList.add("scanned");
+          return true;
         };
+
+        // Required fields
         mark(this._dateInput, r.period_end);
         mark(this._kwhInput, r.kwh);
         mark(this._amountInput, r.amount);
+
+        // Optional detailed fields pre-filled from scan
+        let hadOptional = false;
+        if (mark(this._startDateInput, r.period_start)) hadOptional = true;
+        if (mark(this._energyChargeInput, r.energy_charge)) hadOptional = true;
+        if (mark(this._ftChargeInput, r.ft_charge)) hadOptional = true;
+        if (mark(this._serviceChargeInput, r.service_charge)) hadOptional = true;
+        if (mark(this._vatInput, r.vat)) hadOptional = true;
+
+        if (hadOptional && this._detailsEl) {
+          this._detailsEl.open = true;
+        }
+
         this._confidence = r.confidence || "low";
         this._warnings = Array.isArray(r.warnings) ? r.warnings : [];
         if (r.period_end == null && r.kwh == null && r.amount == null) this._scanError = "ai_task_failed";
@@ -627,19 +980,54 @@ class ElectricityBillPanel extends HTMLElement {
 
     this._saveBtn.disabled = true;
     this._askBox.replaceChildren();
+
+    const parseCharge = (inp) => {
+      const v = parseFloat(inp.value);
+      return isNaN(v) ? null : v;
+    };
+
+    const payload = {
+      period_end,
+      kwh,
+      amount,
+      note: this._noteInput.value.trim() || (this._fromScan ? "scan" : "manual"),
+      replace: Boolean(replace),
+    };
+
+    if (this._startDateInput.value) {
+      payload.period_start = this._startDateInput.value;
+    }
+    const ec = parseCharge(this._energyChargeInput);
+    if (ec !== null) payload.energy_charge = ec;
+    const ft = parseCharge(this._ftChargeInput);
+    if (ft !== null) payload.ft_charge = ft;
+    const sc = parseCharge(this._serviceChargeInput);
+    if (sc !== null) payload.service_charge = sc;
+    const vat = parseCharge(this._vatInput);
+    if (vat !== null) payload.vat = vat;
+
     try {
-      await this._hass.callService("electricity_bill", "add_bill", {
-        period_end,
-        kwh,
-        amount,
-        note: this._fromScan ? "scan" : "manual",
-        replace: Boolean(replace),
-      });
+      await this._hass.callService("electricity_bill", "add_bill", payload);
       this._toastMsg("บันทึกบิลแล้ว · อัตรา " + num(amount / kwh, 2) + " บาท/หน่วย", false);
-      for (const i of [this._dateInput, this._kwhInput, this._amountInput]) {
+
+      const allInputs = [
+        this._dateInput,
+        this._kwhInput,
+        this._amountInput,
+        this._startDateInput,
+        this._energyChargeInput,
+        this._ftChargeInput,
+        this._serviceChargeInput,
+        this._vatInput,
+        this._noteInput,
+      ];
+      for (const i of allInputs) {
         i.value = "";
-        i.closest(".input").classList.remove("scanned");
+        const wrap = i.closest(".input");
+        if (wrap) wrap.classList.remove("scanned");
       }
+      if (this._detailsEl) this._detailsEl.open = false;
+
       this._fromScan = false;
       this._confidence = null;
       this._warnings = [];

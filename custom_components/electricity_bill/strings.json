@@ -64,6 +64,10 @@
       "name": "Add Bill",
       "description": "Record a monthly electricity bill, update unit rate, and reset cycle baseline.",
       "fields": {
+        "period_start": {
+          "name": "Period Start Date",
+          "description": "First day of the billing period (YYYY-MM-DD, optional)."
+        },
         "period_end": {
           "name": "Period End Date",
           "description": "Last day of the billing period the bill covers (YYYY-MM-DD, defaults to today)."
@@ -75,6 +79,22 @@
         "amount": {
           "name": "Total Amount",
           "description": "Total amount billed in THB."
+        },
+        "energy_charge": {
+          "name": "Energy Charge",
+          "description": "Base electricity charge in THB (optional)."
+        },
+        "ft_charge": {
+          "name": "Ft Charge",
+          "description": "Fuel adjustment charge (Ft) in THB, may be negative (optional)."
+        },
+        "service_charge": {
+          "name": "Service Charge",
+          "description": "Monthly service charge in THB (optional)."
+        },
+        "vat": {
+          "name": "VAT",
+          "description": "Value Added Tax (7%) in THB (optional)."
         },
         "note": {
           "name": "Note",
@@ -117,6 +137,12 @@
     },
     "invalid_date": {
       "message": "Invalid date format for period_end. Expected YYYY-MM-DD."
+    },
+    "invalid_period": {
+      "message": "Period start date must be before or equal to period end date."
+    },
+    "invalid_charge": {
+      "message": "Charge amounts must be valid finite numbers and non-negative (except Ft)."
     },
     "bill_not_found": {
       "message": "Bill with the specified ID or period end was not found."

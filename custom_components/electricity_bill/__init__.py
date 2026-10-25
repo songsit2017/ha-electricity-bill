@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import date, datetime, time
 import logging
+import math
 from typing import Any
 import uuid
 from zoneinfo import ZoneInfo
@@ -36,11 +37,16 @@ from .calc import (
 )
 from .const import (
     ATTR_AMOUNT,
+    ATTR_ENERGY_CHARGE,
+    ATTR_FT_CHARGE,
     ATTR_ID,
     ATTR_KWH,
     ATTR_NOTE,
     ATTR_PERIOD_END,
+    ATTR_PERIOD_START,
     ATTR_REPLACE,
+    ATTR_SERVICE_CHARGE,
+    ATTR_VAT,
     CONF_FALLBACK_RATE,
     CONF_NAME,
     CONF_SOURCES,
@@ -61,9 +67,14 @@ type ElectricityBillConfigEntry = ConfigEntry["ElectricityBillCoordinator"]
 
 ADD_BILL_SCHEMA = vol.Schema(
     {
+        vol.Optional(ATTR_PERIOD_START): cv.date,
         vol.Optional(ATTR_PERIOD_END): cv.date,
         vol.Required(ATTR_KWH): vol.Coerce(float),
         vol.Required(ATTR_AMOUNT): vol.Coerce(float),
+        vol.Optional(ATTR_ENERGY_CHARGE): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0))),
+        vol.Optional(ATTR_FT_CHARGE): vol.Any(None, vol.Coerce(float)),
+        vol.Optional(ATTR_SERVICE_CHARGE): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0))),
+        vol.Optional(ATTR_VAT): vol.Any(None, vol.All(vol.Coerce(float), vol.Range(min=0))),
         vol.Optional(ATTR_NOTE, default=""): cv.string,
         vol.Optional(ATTR_REPLACE, default=False): cv.boolean,
     }
@@ -337,6 +348,11 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         amount: float,
         note: str = "",
         replace: bool = False,
+        period_start: date | str | None = None,
+        energy_charge: float | None = None,
+        ft_charge: float | None = None,
+        service_charge: float | None = None,
+        vat: float | None = None,
     ) -> None:
         """Add a monthly electricity bill, compute rate/measured_kwh, and reset cycle baseline."""
         if kwh is None or float(kwh) <= 0:
@@ -373,6 +389,63 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         period_end_str = period_end_date.isoformat()
 
+        # Parse and validate period_start if provided
+        period_start_date: date | None = None
+        if period_start is not None and str(period_start).strip() != "":
+            if isinstance(period_start, str):
+                try:
+                    period_start_date = datetime.strptime(period_start.strip(), "%Y-%m-%d").date()
+                except ValueError as err:
+                    raise ServiceValidationError(
+                        f"Invalid date format for period_start: {period_start}",
+                        translation_domain=DOMAIN,
+                        translation_key="invalid_date",
+                    ) from err
+            elif isinstance(period_start, datetime):
+                period_start_date = period_start.date()
+            elif isinstance(period_start, date):
+                period_start_date = period_start
+
+        if period_start_date is not None and period_start_date > period_end_date:
+            raise ServiceValidationError(
+                "Period start date must be before or equal to period end date.",
+                translation_domain=DOMAIN,
+                translation_key="invalid_period",
+            )
+
+        period_start_str = period_start_date.isoformat() if period_start_date is not None else None
+
+        # Validate charge amounts
+        def _validate_charge(val: Any, name: str, allow_negative: bool = False) -> float | None:
+            if val is None or str(val).strip() == "":
+                return None
+            try:
+                f_val = float(val)
+            except (ValueError, TypeError) as err:
+                raise ServiceValidationError(
+                    f"{name} must be a valid number.",
+                    translation_domain=DOMAIN,
+                    translation_key="invalid_charge",
+                ) from err
+            if not math.isfinite(f_val):
+                raise ServiceValidationError(
+                    f"{name} must be a finite number.",
+                    translation_domain=DOMAIN,
+                    translation_key="invalid_charge",
+                )
+            if not allow_negative and f_val < 0:
+                raise ServiceValidationError(
+                    f"{name} cannot be negative.",
+                    translation_domain=DOMAIN,
+                    translation_key="invalid_charge",
+                )
+            return round(f_val, 2)
+
+        valid_energy = _validate_charge(energy_charge, "Energy charge", allow_negative=False)
+        valid_ft = _validate_charge(ft_charge, "Ft charge", allow_negative=True)
+        valid_service = _validate_charge(service_charge, "Service charge", allow_negative=False)
+        valid_vat = _validate_charge(vat, "VAT", allow_negative=False)
+
         if check_duplicate_period_end(self.bills, period_end_str, replace=replace):
             raise ServiceValidationError(
                 f"A bill with period end {period_end_str} already exists. Pass replace: true to overwrite.",
@@ -387,6 +460,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         new_bill = {
             "id": str(uuid.uuid4()),
             "period_start": None,
+            "period_start_manual": period_start_str,
             "period_end": period_end_str,
             "kwh": float(kwh),
             "amount": float(amount),
@@ -394,6 +468,10 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "snapshot": snapshot,
             "measured_kwh": 0.0,
             "note": str(note or ""),
+            "energy_charge": valid_energy,
+            "ft_charge": valid_ft,
+            "service_charge": valid_service,
+            "vat": valid_vat,
         }
 
         self.bills, _ = add_bill_record(self.bills, new_bill, replace=replace)
@@ -590,6 +668,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             amount=call.data.get(ATTR_AMOUNT),
             note=call.data.get(ATTR_NOTE, ""),
             replace=call.data.get(ATTR_REPLACE, False),
+            period_start=call.data.get(ATTR_PERIOD_START),
+            energy_charge=call.data.get(ATTR_ENERGY_CHARGE),
+            ft_charge=call.data.get(ATTR_FT_CHARGE),
+            service_charge=call.data.get(ATTR_SERVICE_CHARGE),
+            vat=call.data.get(ATTR_VAT),
         )
 
     async def handle_remove_bill(call: ServiceCall) -> None:

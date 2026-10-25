@@ -149,9 +149,14 @@ def test_validate_extraction_all_null():
     today = date(2026, 10, 12)
 
     expected = {
+        "period_start": None,
         "period_end": None,
         "kwh": None,
         "amount": None,
+        "energy_charge": None,
+        "ft_charge": None,
+        "service_charge": None,
+        "vat": None,
         "confidence": "low",
         "warnings": [],
     }
@@ -159,7 +164,17 @@ def test_validate_extraction_all_null():
     assert validate_extraction({}, today=today) == expected
     assert validate_extraction(None, today=today) == expected
     assert validate_extraction(
-        {"period_end": None, "kwh": None, "amount": None, "confidence": None},
+        {
+            "period_start": None,
+            "period_end": None,
+            "kwh": None,
+            "amount": None,
+            "energy_charge": None,
+            "ft_charge": None,
+            "service_charge": None,
+            "vat": None,
+            "confidence": None,
+        },
         today=today,
     ) == expected
 
@@ -177,3 +192,58 @@ def test_validate_extraction_numeric_strings_with_commas():
     assert result["amount"] == 5432.1
     assert result["confidence"] == "medium"
     assert result["warnings"] == []
+
+
+def test_validate_extraction_charges_and_period():
+    """Test validation of period_start and four charges in validate_extraction."""
+    today = date(2026, 10, 23)
+    raw = {
+        "period_start": "2569-09-21",  # BE year 2569 -> 2026
+        "period_end": "2569-10-20",
+        "kwh": "312.0",
+        "amount": "1,385.12",
+        "energy_charge": "1,150.50",
+        "ft_charge": "-45.20",          # negative Ft allowed
+        "service_charge": "38.22",
+        "vat": "91.60",
+        "confidence": "high",
+    }
+    result = validate_extraction(raw, today=today)
+    assert result["period_start"] == "2026-09-21"
+    assert result["period_end"] == "2026-10-20"
+    assert result["kwh"] == 312.0
+    assert result["amount"] == 1385.12
+    assert result["energy_charge"] == 1150.50
+    assert result["ft_charge"] == -45.20
+    assert result["service_charge"] == 38.22
+    assert result["vat"] == 91.60
+    assert result["confidence"] == "high"
+    assert result["warnings"] == []
+
+    # Negative energy_charge, service_charge, vat rejected (set to None)
+    neg_raw = {
+        "energy_charge": -10.0,
+        "service_charge": -5.0,
+        "vat": -2.0,
+        "ft_charge": -50.0,  # Ft can be negative
+    }
+    res_neg = validate_extraction(neg_raw, today=today)
+    assert res_neg["energy_charge"] is None
+    assert res_neg["service_charge"] is None
+    assert res_neg["vat"] is None
+    assert res_neg["ft_charge"] == -50.0
+
+    # period_start > period_end -> warning 'invalid_period'
+    res_inv_period = validate_extraction(
+        {"period_start": "2026-10-10", "period_end": "2026-10-05"},
+        today=today,
+    )
+    assert "invalid_period" in res_inv_period["warnings"]
+
+    # period_start in future -> warning 'date_in_future' and null period_start
+    res_future_start = validate_extraction(
+        {"period_start": "2026-10-26", "period_end": "2026-10-20"},
+        today=today,
+    )
+    assert res_future_start["period_start"] is None
+    assert "date_in_future" in res_future_start["warnings"]

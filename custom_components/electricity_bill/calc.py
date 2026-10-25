@@ -6,6 +6,7 @@ dependencies, allowing it to be tested in any standard Python environment.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+import math
 import re
 from typing import Any
 
@@ -130,6 +131,126 @@ def calculate_days_in_cycle(
         return max(0, (curr_date - start_date).days)
     except (ValueError, TypeError):
         return 0
+
+
+def derive_period_start(
+    manual_start: Any,
+    prev_period_end: Any = None,
+) -> str | None:
+    """Return the period start to display.
+
+    manual_start (the start the user typed or the scan read, stored as `period_start_manual`) wins;
+    otherwise previous bill's period_end + 1 day; otherwise None. Accepts a bill dict as first argument.
+    """
+    if isinstance(manual_start, dict):
+        manual_start = manual_start.get("period_start_manual")
+    if isinstance(prev_period_end, dict):
+        prev_period_end = prev_period_end.get("period_end")
+    if manual_start:
+        return str(manual_start)
+    if not prev_period_end:
+        return None
+    try:
+        prev_date = (
+            datetime.strptime(str(prev_period_end), "%Y-%m-%d").date()
+            if isinstance(prev_period_end, str)
+            else prev_period_end
+        )
+        return (prev_date + timedelta(days=1)).isoformat()
+    except (ValueError, TypeError):
+        return None
+
+
+def calculate_days(
+    period_start: str | date | None,
+    period_end: str | date | None,
+) -> int | None:
+    """Calculate number of days in billing period ((period_end - period_start).days + 1).
+
+    Returns None if either date is None or invalid, or if start > end.
+    """
+    if not period_start or not period_end:
+        return None
+
+    try:
+        s_date = (
+            datetime.strptime(str(period_start), "%Y-%m-%d").date()
+            if isinstance(period_start, str)
+            else period_start
+        )
+        e_date = (
+            datetime.strptime(str(period_end), "%Y-%m-%d").date()
+            if isinstance(period_end, str)
+            else period_end
+        )
+        if s_date > e_date:
+            return None
+        return (e_date - s_date).days + 1
+    except (ValueError, TypeError):
+        return None
+
+
+def calculate_per_day(
+    val: float | None,
+    days: int | None,
+    decimals: int = 2,
+) -> float | None:
+    """Calculate value per day rounded to decimals. Returns None on division by zero or invalid inputs."""
+    if val is None or days is None:
+        return None
+    try:
+        d = int(days)
+        if d <= 0:
+            return None
+        return round(float(val) / float(d), decimals)
+    except (ZeroDivisionError, ValueError, TypeError):
+        return None
+
+
+def calculate_change_pct(
+    current: float | None,
+    previous: float | None,
+    decimals: int = 1,
+) -> float | None:
+    """Calculate percentage change ((current - previous) / previous * 100).
+
+    Returns None on division by zero or when either value is None.
+    """
+    if current is None or previous is None:
+        return None
+    try:
+        prev_val = float(previous)
+        if prev_val == 0.0:
+            return None
+        curr_val = float(current)
+        pct = ((curr_val - prev_val) / prev_val) * 100.0
+        return round(pct, decimals)
+    except (ZeroDivisionError, ValueError, TypeError):
+        return None
+
+
+def items_sum_mismatch(
+    amount: float | None,
+    energy_charge: float | None,
+    ft_charge: float | None,
+    service_charge: float | None,
+    vat: float | None,
+    tolerance: float = 0.05,
+) -> bool:
+    """Return True if all four charge items are present and |sum - amount| > tolerance."""
+    if (
+        amount is None
+        or energy_charge is None
+        or ft_charge is None
+        or service_charge is None
+        or vat is None
+    ):
+        return False
+    try:
+        total = float(energy_charge) + float(ft_charge) + float(service_charge) + float(vat)
+        return abs(total - float(amount)) > tolerance
+    except (ValueError, TypeError):
+        return False
 
 
 def recompute_bills(bills: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -263,19 +384,60 @@ def format_bill_history(
     bills: list[dict[str, Any]],
     max_items: int = 24,
 ) -> list[dict[str, Any]]:
-    """Format bill history for attribute display: newest first, max items, specific keys."""
-    sorted_desc = sorted(bills, key=lambda b: str(b.get("period_end", "")), reverse=True)
-    history: list[dict[str, Any]] = []
+    """Format bill history for attribute display: newest first, max items, rich derived fields."""
+    sorted_asc = sorted(bills, key=lambda b: str(b.get("period_end", "")))
+    formatted_asc: list[dict[str, Any]] = []
 
-    for bill in sorted_desc[:max_items]:
-        history.append({
-            "period_end": bill.get("period_end"),
-            "kwh": bill.get("kwh"),
-            "amount": bill.get("amount"),
-            "rate": bill.get("rate"),
+    for idx, bill in enumerate(sorted_asc):
+        prev_bill = sorted_asc[idx - 1] if idx > 0 else None
+        p_start = derive_period_start(
+            bill.get("period_start_manual"),
+            prev_bill.get("period_end") if prev_bill else None,
+        )
+        p_end = bill.get("period_end")
+        days = calculate_days(p_start, p_end)
+
+        kwh = bill.get("kwh")
+        amount = bill.get("amount")
+        rate = bill.get("rate")
+
+        kwh_per_day = calculate_per_day(kwh, days)
+        baht_per_day = calculate_per_day(amount, days)
+
+        prev_kwh = prev_bill.get("kwh") if prev_bill else None
+        prev_amount = prev_bill.get("amount") if prev_bill else None
+
+        kwh_change_pct = calculate_change_pct(kwh, prev_kwh)
+        amount_change_pct = calculate_change_pct(amount, prev_amount)
+
+        energy_charge = bill.get("energy_charge")
+        ft_charge = bill.get("ft_charge")
+        service_charge = bill.get("service_charge")
+        vat = bill.get("vat")
+
+        mismatch = items_sum_mismatch(amount, energy_charge, ft_charge, service_charge, vat)
+
+        formatted_asc.append({
+            "id": bill.get("id"),
+            "period_start": p_start,
+            "period_end": p_end,
+            "days": days,
+            "kwh": kwh,
+            "amount": amount,
+            "rate": rate,
+            "kwh_per_day": kwh_per_day,
+            "baht_per_day": baht_per_day,
+            "kwh_change_pct": kwh_change_pct,
+            "amount_change_pct": amount_change_pct,
+            "energy_charge": energy_charge,
+            "ft_charge": ft_charge,
+            "service_charge": service_charge,
+            "vat": vat,
+            "items_mismatch": mismatch,
+            "note": str(bill.get("note", "")),
         })
 
-    return history
+    return list(reversed(formatted_asc))[:max_items]
 
 
 def validate_extraction(
@@ -286,11 +448,18 @@ def validate_extraction(
 
     Pure validation helper with no Home Assistant dependencies.
     Rules:
-    - parse date strictly, subtract 543 if year > 2400, reject future date > today+1
+    - parse period_end strictly, subtract 543 if year > 2400, reject future date > today+1
       (warning 'date_in_future' and null the date)
+    - parse period_start strictly, subtract 543 if year > 2400, reject future date > today+1
+      (warning 'date_in_future' and null the date)
+    - if period_start and period_end both valid and period_start > period_end -> warning 'invalid_period'
     - kwh must be 0 < v <= 5000 else null + warning 'kwh_out_of_range'
     - amount must be 0 < v <= 100000 else null + warning 'amount_out_of_range'
-    - if both present and amount/kwh is outside 1.5..12 THB/kWh add warning 'rate_unusual'
+    - energy_charge must be finite and >= 0 else null
+    - ft_charge must be finite (may be negative) else null
+    - service_charge must be finite and >= 0 else null
+    - vat must be finite and >= 0 else null
+    - if both kwh and amount present and amount/kwh is outside 1.5..12 THB/kWh add warning 'rate_unusual'
     - handles numeric strings with commas (e.g. '1,385.12')
     - handles all-null input
     """
@@ -300,56 +469,67 @@ def validate_extraction(
     input_data = data if isinstance(data, dict) else {}
     warnings: list[str] = []
 
-    # 1. Parse date
-    period_end: str | None = None
-    raw_date = input_data.get("period_end")
+    def _parse_date(raw_date: Any) -> tuple[str | None, bool]:
+        if raw_date is None:
+            return None, False
 
-    parsed_date: date | None = None
-    if isinstance(raw_date, datetime):
-        parsed_date = raw_date.date()
-    elif isinstance(raw_date, date):
-        parsed_date = raw_date
-    elif isinstance(raw_date, str) and raw_date.strip():
-        s = raw_date.strip()
-        m = re.match(r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$", s)
-        if m:
+        parsed: date | None = None
+        if isinstance(raw_date, datetime):
+            parsed = raw_date.date()
+        elif isinstance(raw_date, date):
+            parsed = raw_date
+        elif isinstance(raw_date, str) and raw_date.strip():
+            s = raw_date.strip()
+            m = re.match(r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$", s)
+            if m:
+                try:
+                    y = int(m.group(1))
+                    mon = int(m.group(2))
+                    d = int(m.group(3))
+                    if y > 2400:
+                        y -= 543
+                    parsed = date(y, mon, d)
+                except ValueError:
+                    parsed = None
+
+        if parsed is not None and parsed.year > 2400:
             try:
-                y = int(m.group(1))
-                mon = int(m.group(2))
-                d = int(m.group(3))
-                if y > 2400:
-                    y -= 543
-                parsed_date = date(y, mon, d)
+                parsed = date(parsed.year - 543, parsed.month, parsed.day)
             except ValueError:
-                parsed_date = None
+                parsed = None
 
-    if parsed_date is not None and parsed_date.year > 2400:
-        try:
-            parsed_date = date(parsed_date.year - 543, parsed_date.month, parsed_date.day)
-        except ValueError:
-            parsed_date = None
+        if parsed is not None:
+            if parsed > today + timedelta(days=1):
+                return None, True
+            return parsed.isoformat(), False
+        return None, False
 
-    if parsed_date is not None:
-        if parsed_date > today + timedelta(days=1):
-            period_end = None
-            warnings.append("date_in_future")
-        else:
-            period_end = parsed_date.isoformat()
-    else:
-        period_end = None
+    # 1. Parse dates
+    period_end, end_future = _parse_date(input_data.get("period_end"))
+    if end_future and "date_in_future" not in warnings:
+        warnings.append("date_in_future")
+
+    period_start, start_future = _parse_date(input_data.get("period_start"))
+    if start_future and "date_in_future" not in warnings:
+        warnings.append("date_in_future")
+
+    if period_start and period_end and period_start > period_end:
+        warnings.append("invalid_period")
 
     # Helper for numeric parsing
     def _parse_num(val: Any) -> float | None:
         if val is None:
             return None
         if isinstance(val, (int, float)):
-            return float(val)
+            f = float(val)
+            return f if math.isfinite(f) else None
         if isinstance(val, str):
             clean = val.replace(",", "").strip()
             if not clean:
                 return None
             try:
-                return float(clean)
+                f = float(clean)
+                return f if math.isfinite(f) else None
             except (ValueError, TypeError):
                 return None
         return None
@@ -380,13 +560,29 @@ def validate_extraction(
     else:
         amount = None
 
-    # 4. Unusual rate warning: 1.5 <= rate <= 12.0
+    # 4. Parse charge items
+    def _parse_charge(raw: Any, allow_negative: bool = False) -> float | None:
+        if raw is None or str(raw).strip() == "":
+            return None
+        num_val = _parse_num(raw)
+        if num_val is None:
+            return None
+        if not allow_negative and num_val < 0:
+            return None
+        return round(num_val, 2)
+
+    energy_charge = _parse_charge(input_data.get("energy_charge"), allow_negative=False)
+    ft_charge = _parse_charge(input_data.get("ft_charge"), allow_negative=True)
+    service_charge = _parse_charge(input_data.get("service_charge"), allow_negative=False)
+    vat = _parse_charge(input_data.get("vat"), allow_negative=False)
+
+    # 5. Unusual rate warning: 1.5 <= rate <= 12.0
     if kwh is not None and amount is not None and kwh > 0:
         rate = amount / kwh
         if rate < 1.5 or rate > 12.0:
             warnings.append("rate_unusual")
 
-    # 5. Confidence
+    # 6. Confidence
     raw_conf = input_data.get("confidence")
     if isinstance(raw_conf, str) and raw_conf.strip().lower() in ("low", "medium", "high"):
         confidence = raw_conf.strip().lower()
@@ -394,9 +590,14 @@ def validate_extraction(
         confidence = "low"
 
     return {
+        "period_start": period_start,
         "period_end": period_end,
         "kwh": kwh,
         "amount": amount,
+        "energy_charge": energy_charge,
+        "ft_charge": ft_charge,
+        "service_charge": service_charge,
+        "vat": vat,
         "confidence": confidence,
         "warnings": warnings,
     }

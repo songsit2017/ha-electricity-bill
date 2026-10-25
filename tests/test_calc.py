@@ -1,3 +1,4 @@
+"""Unit tests for calc.py math and data manipulation helpers."""
 from datetime import date
 from pathlib import Path
 import sys
@@ -306,19 +307,321 @@ def test_days_in_cycle():
     assert calc.calculate_days_in_cycle("invalid-date") == 0
 
 
+def test_derive_period_start():
+    """Test derive_period_start pure helper function."""
+    # First bill: no period_start and no prev_period_end -> None
+    assert calc.derive_period_start(None, None) is None
+    assert calc.derive_period_start({}, {}) is None
+
+    # Explicit period_start provided -> return explicit period_start
+    assert calc.derive_period_start("2026-09-01", None) == "2026-09-01"
+    assert calc.derive_period_start("2026-09-01", "2026-08-31") == "2026-09-01"
+    assert calc.derive_period_start({"period_start_manual": "2026-09-01"}, {"period_end": "2026-08-31"}) == "2026-09-01"
+
+    # Missing period_start: derives from previous bill's period_end + 1 day
+    assert calc.derive_period_start(None, "2026-08-25") == "2026-08-26"
+    assert calc.derive_period_start(None, "2026-08-31") == "2026-09-01"
+    assert calc.derive_period_start(None, "2024-02-28") == "2024-02-29"  # leap year
+    assert calc.derive_period_start(None, date(2026, 8, 25)) == "2026-08-26"
+    assert calc.derive_period_start({}, {"period_end": "2026-08-25"}) == "2026-08-26"
+
+
+    # Invalid prev_period_end returns None or explicit period_start
+    assert calc.derive_period_start(None, "invalid-date") is None
+    assert calc.derive_period_start("2026-09-01", "invalid-date") == "2026-09-01"
+
+
+def test_calculate_days():
+    """Test calculate_days pure helper function."""
+    # Standard period: 30 days inclusive ((end - start).days + 1)
+    assert calc.calculate_days("2026-09-01", "2026-09-30") == 30
+    assert calc.calculate_days("2026-08-25", "2026-09-24") == 31
+
+    # Same date: 1 day
+    assert calc.calculate_days("2026-09-01", "2026-09-01") == 1
+
+    # Leap year handling
+    assert calc.calculate_days("2024-02-28", "2024-03-01") == 3
+
+    # Date objects
+    assert calc.calculate_days(date(2026, 9, 1), date(2026, 9, 30)) == 30
+
+    # Start after end -> None
+    assert calc.calculate_days("2026-09-30", "2026-09-01") is None
+
+    # Missing or invalid dates -> None
+    assert calc.calculate_days(None, "2026-09-30") is None
+    assert calc.calculate_days("2026-09-01", None) is None
+    assert calc.calculate_days(None, None) is None
+    assert calc.calculate_days("not-a-date", "2026-09-30") is None
+    assert calc.calculate_days("2026-09-01", "not-a-date") is None
+
+
+def test_calculate_per_day():
+    """Test calculate_per_day pure helper function."""
+    # Standard calculations
+    assert calc.calculate_per_day(300.0, 30) == 10.0
+    assert calc.calculate_per_day(100.0, 3) == 33.33
+    assert calc.calculate_per_day(100.0, 3, decimals=3) == 33.333
+    assert calc.calculate_per_day(0.0, 30) == 0.0
+
+    # Division by zero or negative days -> None
+    assert calc.calculate_per_day(100.0, 0) is None
+    assert calc.calculate_per_day(100.0, -5) is None
+
+    # None values -> None
+    assert calc.calculate_per_day(None, 30) is None
+    assert calc.calculate_per_day(100.0, None) is None
+    assert calc.calculate_per_day(None, None) is None
+
+    # Invalid non-numeric inputs -> None
+    assert calc.calculate_per_day("invalid", 30) is None
+    assert calc.calculate_per_day(100.0, "invalid") is None
+
+
+def test_calculate_change_pct():
+    """Test calculate_change_pct pure helper function."""
+    # Standard positive change: (110 - 100) / 100 * 100 = 10.0%
+    assert calc.calculate_change_pct(110.0, 100.0) == 10.0
+
+    # Negative change: (85 - 100) / 100 * 100 = -15.0%
+    assert calc.calculate_change_pct(85.0, 100.0) == -15.0
+
+    # No change: 0.0%
+    assert calc.calculate_change_pct(100.0, 100.0) == 0.0
+
+    # Decimal rounding: 1 decimal place by default
+    assert calc.calculate_change_pct(105.56, 100.0) == 5.6
+
+    # Division by zero (previous was 0.0) -> None
+    assert calc.calculate_change_pct(100.0, 0.0) is None
+    assert calc.calculate_change_pct(0.0, 0.0) is None
+
+    # Current is 0, previous is positive -> -100.0%
+    assert calc.calculate_change_pct(0.0, 100.0) == -100.0
+
+    # None values -> None
+    assert calc.calculate_change_pct(None, 100.0) is None
+    assert calc.calculate_change_pct(100.0, None) is None
+    assert calc.calculate_change_pct(None, None) is None
+
+
+def test_items_sum_mismatch():
+    """Test items_sum_mismatch pure helper function."""
+    # All 4 items present and sum matches amount -> False (no mismatch)
+    assert calc.items_sum_mismatch(
+        amount=1000.0,
+        energy_charge=800.0,
+        ft_charge=100.0,
+        service_charge=34.62,
+        vat=65.38,
+    ) is False
+
+    # Negative Ft charge: 800 - 50 + 34.62 + 65.38 = 850.0 -> False
+    assert calc.items_sum_mismatch(
+        amount=850.0,
+        energy_charge=800.0,
+        ft_charge=-50.0,
+        service_charge=34.62,
+        vat=65.38,
+    ) is False
+
+    # Difference within tolerance (0.05) -> False
+    assert calc.items_sum_mismatch(
+        amount=1000.0,
+        energy_charge=800.0,
+        ft_charge=100.0,
+        service_charge=34.62,
+        vat=65.41,  # diff = 0.03
+    ) is False
+
+    # Difference exceeds tolerance (> 0.05) -> True (mismatch)
+    assert calc.items_sum_mismatch(
+        amount=1000.0,
+        energy_charge=800.0,
+        ft_charge=100.0,
+        service_charge=34.62,
+        vat=70.0,  # diff = 4.62
+    ) is True
+
+    # Negative Ft mismatch: amount=900, sum=850 -> diff=50 -> True
+    assert calc.items_sum_mismatch(
+        amount=900.0,
+        energy_charge=800.0,
+        ft_charge=-50.0,
+        service_charge=34.62,
+        vat=65.38,
+    ) is True
+
+    # Missing any item -> False (never flag mismatch on partial data)
+    assert calc.items_sum_mismatch(None, 800.0, 100.0, 34.62, 65.38) is False
+    assert calc.items_sum_mismatch(1000.0, None, 100.0, 34.62, 65.38) is False
+    assert calc.items_sum_mismatch(1000.0, 800.0, None, 34.62, 65.38) is False
+    assert calc.items_sum_mismatch(1000.0, 800.0, 100.0, None, 65.38) is False
+    assert calc.items_sum_mismatch(1000.0, 800.0, 100.0, 34.62, None) is False
+
+
 def test_format_bill_history():
-    """Test formatting bill history attribute (newest first, max items)."""
+    """Test format_bill_history with comprehensive bill scenarios."""
     bills = [
-        {"period_end": f"2026-{m:02d}-20", "kwh": 200.0 + m, "amount": 1000.0 + m, "rate": 4.4, "extra": "omit"}
-        for m in range(1, 10)
+        # Bill 1: First bill (no previous bill, no period_start)
+        {
+            "id": "b1",
+            "period_end": "2026-07-25",
+            "kwh": 200.0,
+            "amount": 880.0,
+            "rate": 4.40,
+            "note": "First bill",
+        },
+        # Bill 2: Missing period_start (derived from b1's period_end + 1 day: 2026-07-26)
+        # Zero previous kWh test scenario setup: b2 has kwh = 0.0
+        {
+            "id": "b2",
+            "period_end": "2026-08-25",
+            "kwh": 0.0,
+            "amount": 50.0,
+            "rate": 0.0,
+            "note": "Zero kWh bill",
+        },
+        # Bill 3: Previous bill (b2) had zero kWh -> kwh_change_pct must be None
+        # Explicit period_start: "2026-08-26"
+        # Negative Ft charge: ft_charge = -25.50
+        # Mismatch false: 800 + (-25.50) + 38.22 + 56.89 = 869.61
+        {
+            "id": "b3",
+            "period_start_manual": "2026-08-26",
+            "period_end": "2026-09-25",
+            "kwh": 210.0,
+            "amount": 869.61,
+            "rate": 4.141,
+            "energy_charge": 800.0,
+            "ft_charge": -25.50,
+            "service_charge": 38.22,
+            "vat": 56.89,
+            "note": "Negative Ft bill",
+        },
+        # Bill 4: Items sum mismatch true
+        # amount = 1000.0, charges sum = 800 + 100 + 38.22 + 50.0 = 988.22 (diff 11.78 > 0.05)
+        {
+            "id": "b4",
+            "period_end": "2026-10-25",
+            "kwh": 250.0,
+            "amount": 1000.0,
+            "rate": 4.0,
+            "energy_charge": 800.0,
+            "ft_charge": 100.0,
+            "service_charge": 38.22,
+            "vat": 50.0,
+            "note": "Mismatch bill",
+        },
     ]
-    history = calc.format_bill_history(bills, max_items=5)
-    assert len(history) == 5
+
+    history = calc.format_bill_history(bills, max_items=10)
+    assert len(history) == 4
+
+    expected_keys = {
+        "id",
+        "period_start",
+        "period_end",
+        "days",
+        "kwh",
+        "amount",
+        "rate",
+        "kwh_per_day",
+        "baht_per_day",
+        "kwh_change_pct",
+        "amount_change_pct",
+        "energy_charge",
+        "ft_charge",
+        "service_charge",
+        "vat",
+        "items_mismatch",
+        "note",
+    }
+    for item in history:
+        assert set(item.keys()) == expected_keys
+
+    # History is newest first: [b4, b3, b2, b1]
+    h4, h3, h2, h1 = history[0], history[1], history[2], history[3]
+
+    # Bill 4: mismatch true
+    assert h4["id"] == "b4"
+    assert h4["items_mismatch"] is True
+    assert h4["period_start"] == "2026-09-26"  # derived from b3's period_end + 1
+    assert h4["days"] == 30                    # 2026-09-26 to 2026-10-25
+    assert h4["kwh_per_day"] == round(250.0 / 30, 2)
+    assert h4["baht_per_day"] == round(1000.0 / 30, 2)
+    assert h4["amount_change_pct"] == round(((1000.0 - 869.61) / 869.61) * 100, 1)
+
+    # Bill 3: explicit start, negative Ft, mismatch false, prev bill b2 had zero kwh
+    assert h3["id"] == "b3"
+    assert h3["period_start"] == "2026-08-26"
+    assert h3["ft_charge"] == -25.50
+    assert h3["items_mismatch"] is False
+    assert h3["kwh_change_pct"] is None  # prev kwh was 0.0 -> no division by zero error
+
+    # Bill 2: derived start
+    assert h2["id"] == "b2"
+    assert h2["period_start"] == "2026-07-26"
+    assert h2["days"] == 31  # 2026-07-26 to 2026-08-25
+
+    # Bill 1: first bill -> period_start, days, change_pct are None
+    assert h1["id"] == "b1"
+    assert h1["period_start"] is None
+    assert h1["days"] is None
+    assert h1["kwh_per_day"] is None
+    assert h1["baht_per_day"] is None
+    assert h1["kwh_change_pct"] is None
+    assert h1["amount_change_pct"] is None
+    assert h1["items_mismatch"] is False
+
+
+def test_format_bill_history_old_bills_backward_compatibility():
+    """Test format_bill_history with legacy bills missing new keys."""
+    old_bills = [
+        {
+            "id": "old_1",
+            "period_end": "2026-05-20",
+            "kwh": 220.0,
+            "amount": 950.0,
+            "rate": 4.3182,
+            "snapshot": {"sensor.pc_kwh": 50.0},
+            "measured_kwh": 0.0,
+            "note": "Old bill without new fields",
+        },
+        {
+            "id": "old_2",
+            "period_end": "2026-06-20",
+            "kwh": 240.0,
+            "amount": 1050.0,
+            "rate": 4.375,
+            "snapshot": {"sensor.pc_kwh": 80.0},
+            "measured_kwh": 30.0,
+            "note": "Second old bill",
+        },
+    ]
+
+    history = calc.format_bill_history(old_bills, max_items=5)
+    assert len(history) == 2
+
     # Newest first
-    assert history[0]["period_end"] == "2026-09-20"
-    assert history[1]["period_end"] == "2026-08-20"
-    assert "extra" not in history[0]
-    assert set(history[0].keys()) == {"period_end", "kwh", "amount", "rate"}
+    latest = history[0]
+    assert latest["id"] == "old_2"
+    assert latest["period_start"] == "2026-05-21"  # derived from old_1 period_end + 1
+    assert latest["days"] == 31
+    assert latest["energy_charge"] is None
+    assert latest["ft_charge"] is None
+    assert latest["service_charge"] is None
+    assert latest["vat"] is None
+    assert latest["items_mismatch"] is False
+    assert latest["kwh_change_pct"] == round(((240.0 - 220.0) / 220.0) * 100, 1)
+
+    first = history[1]
+    assert first["id"] == "old_1"
+    assert first["period_start"] is None
+    assert first["days"] is None
+    assert first["energy_charge"] is None
+    assert first["items_mismatch"] is False
 
 
 def test_validate_extraction_be_year():
@@ -442,9 +745,14 @@ def test_validate_extraction_all_null():
     today = date(2026, 10, 12)
 
     expected = {
+        "period_start": None,
         "period_end": None,
         "kwh": None,
         "amount": None,
+        "energy_charge": None,
+        "ft_charge": None,
+        "service_charge": None,
+        "vat": None,
         "confidence": "low",
         "warnings": [],
     }
@@ -452,7 +760,17 @@ def test_validate_extraction_all_null():
     assert calc.validate_extraction({}, today=today) == expected
     assert calc.validate_extraction(None, today=today) == expected
     assert calc.validate_extraction(
-        {"period_end": None, "kwh": None, "amount": None, "confidence": None},
+        {
+            "period_start": None,
+            "period_end": None,
+            "kwh": None,
+            "amount": None,
+            "energy_charge": None,
+            "ft_charge": None,
+            "service_charge": None,
+            "vat": None,
+            "confidence": None,
+        },
         today=today,
     ) == expected
 
@@ -470,3 +788,50 @@ def test_validate_extraction_numeric_strings_with_commas():
     assert result["amount"] == 5432.1
     assert result["confidence"] == "medium"
     assert result["warnings"] == []
+
+
+def test_validate_extraction_detailed_charges_and_period():
+    """Test validation of period_start and four charges in validate_extraction."""
+    today = date(2026, 10, 23)
+    raw = {
+        "period_start": "2569-09-21",  # BE year 2569 -> 2026
+        "period_end": "2569-10-20",
+        "kwh": "312.0",
+        "amount": "1,385.12",
+        "energy_charge": "1,150.50",
+        "ft_charge": "-45.20",          # negative Ft allowed
+        "service_charge": "38.22",
+        "vat": "91.60",
+        "confidence": "high",
+    }
+    result = calc.validate_extraction(raw, today=today)
+    assert result["period_start"] == "2026-09-21"
+    assert result["period_end"] == "2026-10-20"
+    assert result["kwh"] == 312.0
+    assert result["amount"] == 1385.12
+    assert result["energy_charge"] == 1150.50
+    assert result["ft_charge"] == -45.20
+    assert result["service_charge"] == 38.22
+    assert result["vat"] == 91.60
+    assert result["confidence"] == "high"
+    assert result["warnings"] == []
+
+    # Negative energy_charge, service_charge, vat rejected (set to None)
+    neg_raw = {
+        "energy_charge": -10.0,
+        "service_charge": -5.0,
+        "vat": -2.0,
+        "ft_charge": -50.0,  # Ft can be negative
+    }
+    res_neg = calc.validate_extraction(neg_raw, today=today)
+    assert res_neg["energy_charge"] is None
+    assert res_neg["service_charge"] is None
+    assert res_neg["vat"] is None
+    assert res_neg["ft_charge"] == -50.0
+
+    # period_start > period_end -> warning 'invalid_period'
+    res_inv_period = calc.validate_extraction(
+        {"period_start": "2026-10-10", "period_end": "2026-10-05"},
+        today=today,
+    )
+    assert "invalid_period" in res_inv_period["warnings"]

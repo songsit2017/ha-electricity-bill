@@ -587,12 +587,16 @@ async def async_setup_entry(
     if not hass.data[DOMAIN].get("panel_registered"):
         try:
             from homeassistant.components.panel_custom import async_register_panel
+            from homeassistant.loader import async_get_integration
+
+            # Version in the URL so browsers/phones fetch the new panel.js after an update.
+            integration = await async_get_integration(hass, DOMAIN)
 
             await async_register_panel(
                 hass,
                 webcomponent_name="electricity-bill-panel",
                 frontend_url_path="electricity",
-                module_url="/electricity_bill_panel/panel.js",
+                module_url=f"/electricity_bill_panel/panel.js?v={integration.version}",
                 sidebar_title="ค่าไฟ",
                 sidebar_icon="mdi:flash",
                 require_admin=False,

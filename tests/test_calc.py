@@ -835,3 +835,41 @@ def test_validate_extraction_detailed_charges_and_period():
         today=today,
     )
     assert "invalid_period" in res_inv_period["warnings"]
+
+
+def test_snapshot_delta_only_limits_total_but_keeps_per_source():
+    current = {"sensor.main": 120.0, "sensor.ac": 30.0, "sensor.pc": 10.0}
+    baseline = {"sensor.main": 100.0, "sensor.ac": 20.0, "sensor.pc": 5.0}
+    total, per_source = calc.calculate_snapshot_delta(current, baseline, only=["sensor.main"])
+    assert total == 20.0
+    assert per_source == {"sensor.main": 20.0, "sensor.ac": 10.0, "sensor.pc": 5.0}
+
+
+def test_cycle_unmetered_with_main_meter():
+    per_source = {"sensor.main": 20.0, "sensor.ac": 10.0, "sensor.pc": 5.0}
+    sub_total, unmetered = calc.calculate_cycle_unmetered_kwh(20.0, per_source, "sensor.main")
+    assert sub_total == 15.0
+    assert unmetered == 5.0
+
+
+def test_cycle_unmetered_never_negative():
+    per_source = {"sensor.main": 10.0, "sensor.ac": 12.0}
+    _, unmetered = calc.calculate_cycle_unmetered_kwh(10.0, per_source, "sensor.main")
+    assert unmetered == 0.0
+
+
+def test_negative_baseline_keeps_energy_used_before_counter_reset():
+    # 8 kWh were used between the bill date and the counter reset -> baseline -8.
+    assert calc.calculate_source_delta(0.0, -8.0) == 8.0
+    assert calc.calculate_source_delta(2.5, -8.0) == 10.5
+
+
+def test_recompute_bills_only_uses_main_meter_for_measured():
+    bills = [
+        {"period_end": "2026-09-24", "snapshot": {"sensor.main": 0.0, "sensor.ac": 0.0}},
+        {"period_end": "2026-10-25", "snapshot": {"sensor.main": 300.0, "sensor.ac": 120.0}},
+    ]
+    out = calc.recompute_bills(bills, only=["sensor.main"])
+    assert out[1]["measured_kwh"] == 300.0
+    out_all = calc.recompute_bills(bills)
+    assert out_all[1]["measured_kwh"] == 420.0

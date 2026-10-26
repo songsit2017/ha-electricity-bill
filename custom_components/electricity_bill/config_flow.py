@@ -23,7 +23,9 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_AI_TASK_ENTITY,
     CONF_FALLBACK_RATE,
+    CONF_MAIN_METER,
     CONF_NAME,
+    CONF_RESET_BUTTON,
     CONF_SOURCES,
     DEFAULT_FALLBACK_RATE,
     DEFAULT_NAME,
@@ -122,7 +124,7 @@ class ElectricityBillOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             sources = user_input.get(CONF_SOURCES, [])
-            if not sources:
+            if not sources and not user_input.get(CONF_MAIN_METER):
                 errors["base"] = "no_sources"
             else:
                 options_data = dict(user_input)
@@ -145,14 +147,30 @@ class ElectricityBillOptionsFlow(config_entries.OptionsFlow):
             self.config_entry.data.get(CONF_AI_TASK_ENTITY),
         )
 
-        options_schema: dict[Any, Any] = {
-            vol.Required(CONF_SOURCES, default=current_sources): EntitySelector(
-                EntitySelectorConfig(
-                    multiple=True,
-                    domain="sensor",
-                    device_class=SensorDeviceClass.ENERGY,
-                )
-            ),
+        current_main = self.config_entry.options.get(
+            CONF_MAIN_METER, self.config_entry.data.get(CONF_MAIN_METER)
+        )
+        current_reset = self.config_entry.options.get(
+            CONF_RESET_BUTTON, self.config_entry.data.get(CONF_RESET_BUTTON)
+        )
+
+        options_schema: dict[Any, Any] = {}
+        options_schema[
+            vol.Optional(CONF_MAIN_METER, description={"suggested_value": current_main})
+        ] = EntitySelector(
+            EntitySelectorConfig(domain="sensor", device_class=SensorDeviceClass.ENERGY)
+        )
+        options_schema[
+            vol.Optional(CONF_RESET_BUTTON, description={"suggested_value": current_reset})
+        ] = EntitySelector(EntitySelectorConfig(domain="button"))
+        options_schema[vol.Optional(CONF_SOURCES, default=current_sources)] = EntitySelector(
+            EntitySelectorConfig(
+                multiple=True,
+                domain="sensor",
+                device_class=SensorDeviceClass.ENERGY,
+            )
+        )
+        options_schema.update({
             vol.Optional(
                 CONF_FALLBACK_RATE, default=current_fallback_rate
             ): NumberSelector(
@@ -163,7 +181,7 @@ class ElectricityBillOptionsFlow(config_entries.OptionsFlow):
                     mode=NumberSelectorMode.BOX,
                 )
             ),
-        }
+        })
 
         if current_ai_task:
             options_schema[

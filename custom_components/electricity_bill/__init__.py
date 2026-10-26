@@ -28,6 +28,8 @@ from .calc import (
     add_bill_record,
     calculate_cycle_cost,
     calculate_cycle_kwh,
+    calculate_cycle_unmetered_kwh,
+    calculate_source_delta,
     calculate_days_in_cycle,
     calculate_rate,
     calculate_unmetered_kwh,
@@ -48,7 +50,9 @@ from .const import (
     ATTR_SERVICE_CHARGE,
     ATTR_VAT,
     CONF_FALLBACK_RATE,
+    CONF_MAIN_METER,
     CONF_NAME,
+    CONF_RESET_BUTTON,
     CONF_SOURCES,
     DEFAULT_FALLBACK_RATE,
     DEFAULT_NAME,
@@ -118,16 +122,47 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.bills: list[dict[str, Any]] = []
         self.cycle_snapshot: dict[str, float] = {}
         self._unsub_track: Callable[[], None] | None = None
+        self._unsub_reset_watch: Callable[[], None] | None = None
 
     @property
-    def sources(self) -> list[str]:
-        """Return the list of source energy sensor entity IDs."""
+    def configured_sources(self) -> list[str]:
+        """Return the configured source sensors (sub-meters when a main meter is set)."""
         return list(
             self.entry.options.get(
                 CONF_SOURCES,
                 self.entry.data.get(CONF_SOURCES, []),
             )
         )
+
+    @property
+    def main_meter(self) -> str | None:
+        """Return the whole-house main meter entity id, if configured."""
+        return self.entry.options.get(
+            CONF_MAIN_METER, self.entry.data.get(CONF_MAIN_METER)
+        ) or None
+
+    @property
+    def reset_button(self) -> str | None:
+        """Return the button entity that resets the main meter, if configured."""
+        return self.entry.options.get(
+            CONF_RESET_BUTTON, self.entry.data.get(CONF_RESET_BUTTON)
+        ) or None
+
+    @property
+    def sources(self) -> list[str]:
+        """Return every tracked sensor: the main meter first, then the other sources."""
+        main = self.main_meter
+        result: list[str] = [main] if main else []
+        for source in self.configured_sources:
+            if source not in result:
+                result.append(source)
+        return result
+
+    @property
+    def total_sources(self) -> list[str]:
+        """Return the sensors whose energy forms the total (main meter alone, else all sources)."""
+        main = self.main_meter
+        return [main] if main else self.configured_sources
 
     @property
     def fallback_rate(self) -> float:
@@ -198,6 +233,9 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._unsub_track is not None:
             self._unsub_track()
             self._unsub_track = None
+        if self._unsub_reset_watch is not None:
+            self._unsub_reset_watch()
+            self._unsub_reset_watch = None
 
     def get_current_snapshot(self) -> dict[str, float]:
         """Read current values from source sensors."""
@@ -299,7 +337,16 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _update_internal_data(self) -> None:
         """Recalculate internal entity data from current states and store."""
         current_snapshot = self.get_current_snapshot()
-        cycle_kwh, per_source = calculate_cycle_kwh(current_snapshot, self.cycle_snapshot)
+        cycle_kwh, per_source = calculate_cycle_kwh(
+            current_snapshot, self.cycle_snapshot, only=self.total_sources
+        )
+        main_meter = self.main_meter
+        if main_meter:
+            submetered_kwh, cycle_unmetered_kwh = calculate_cycle_unmetered_kwh(
+                cycle_kwh, per_source, main_meter
+            )
+        else:
+            submetered_kwh, cycle_unmetered_kwh = None, None
 
         latest_bill = self.bills[-1] if self.bills else None
 
@@ -333,6 +380,9 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.data = {
             "cycle_kwh": cycle_kwh,
             "per_source": per_source,
+            "main_meter": main_meter,
+            "cycle_submetered_kwh": submetered_kwh,
+            "cycle_unmetered_kwh": cycle_unmetered_kwh,
             "cycle_start": cycle_start,
             "days_in_cycle": days_in_cycle,
             "effective_rate": effective_rate,
@@ -462,6 +512,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 translation_placeholders={"period_end": period_end_str},
             )
 
+        previous_newest = max((str(b.get("period_end", "")) for b in self.bills), default="")
         snapshot = await self.async_get_snapshot_for_date(period_end_date)
         rate = calculate_rate(amount, kwh)
 
@@ -482,7 +533,9 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "vat": valid_vat,
         }
 
-        self.bills, _ = add_bill_record(self.bills, new_bill, replace=replace)
+        self.bills, _ = add_bill_record(
+            self.bills, new_bill, replace=replace, only=self.total_sources
+        )
         if self.bills:
             self.cycle_snapshot = dict(self.bills[-1].get("snapshot", snapshot))
         else:
@@ -495,6 +548,77 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             }
         )
 
+        self._update_internal_data()
+        self.async_update_listeners()
+
+        if previous_newest and period_end_str > previous_newest:
+            await self._async_reset_main_meter_after_bill()
+
+    async def _async_reset_main_meter_after_bill(self) -> None:
+        """Press the main meter's reset button once and keep the energy used since period_end.
+
+        The bill baseline for the main meter holds the meter value at period_end. When the
+        counter drops back to 0 the baseline is rewritten to -carry, where carry is the energy
+        used between period_end and the reset, so cycle energy = carry + new counter value.
+        """
+        main = self.main_meter
+        button = self.reset_button
+        if not main or not button:
+            return
+        state = self.hass.states.get(main)
+        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            _LOGGER.warning("Main meter %s unavailable; not pressing %s", main, button)
+            return
+        try:
+            old_value = float(state.state)
+        except (ValueError, TypeError):
+            return
+        carry = calculate_source_delta(old_value, self.cycle_snapshot.get(main, 0.0))
+
+        if self._unsub_reset_watch is not None:
+            self._unsub_reset_watch()
+            self._unsub_reset_watch = None
+
+        @callback
+        def _on_main_change(event: Event) -> None:
+            new_state = event.data.get("new_state")
+            if new_state is None or new_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                return
+            try:
+                new_value = float(new_state.state)
+            except (ValueError, TypeError):
+                return
+            if new_value >= old_value - 0.0005:
+                return
+            if self._unsub_reset_watch is not None:
+                self._unsub_reset_watch()
+                self._unsub_reset_watch = None
+            baseline = -round(carry, 4) if carry > 0 else 0.0
+            self.cycle_snapshot[main] = baseline
+            if self.bills:
+                self.bills[-1].setdefault("snapshot", {})[main] = baseline
+            self.hass.async_create_task(self._async_save_and_refresh())
+
+        self._unsub_reset_watch = async_track_state_change_event(
+            self.hass, [main], _on_main_change
+        )
+        try:
+            await self.hass.services.async_call(
+                "button", "press", {"entity_id": button}, blocking=True
+            )
+        except Exception:  # noqa: BLE001 - a failed press must not fail add_bill
+            _LOGGER.exception("Could not press reset button %s", button)
+            if self._unsub_reset_watch is not None:
+                self._unsub_reset_watch()
+                self._unsub_reset_watch = None
+
+    async def _async_save_and_refresh(self) -> None:
+        await self.store.async_save(
+            {
+                "bills": self.bills,
+                "cycle_snapshot": self.cycle_snapshot,
+            }
+        )
         self._update_internal_data()
         self.async_update_listeners()
 
@@ -523,6 +647,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.bills,
                 bill_id=bill_id,
                 period_end=period_end_str,
+                only=self.total_sources,
             )
         except ValueError as err:
             raise ServiceValidationError(

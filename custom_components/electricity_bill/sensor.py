@@ -84,6 +84,18 @@ SENSOR_DESCRIPTIONS: tuple[ElectricityBillSensorEntityDescription, ...] = (
         },
     ),
     ElectricityBillSensorEntityDescription(
+        key="cycle_unmetered_kwh",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda data: data.get("cycle_unmetered_kwh"),
+        attr_fn=lambda data: {
+            "main_meter": data.get("main_meter"),
+            "submetered_kwh": data.get("cycle_submetered_kwh"),
+        },
+    ),
+    ElectricityBillSensorEntityDescription(
         key="effective_rate",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=f"{CURRENCY_THB}/kWh",
@@ -154,6 +166,7 @@ async def async_setup_entry(
     entities = [
         ElectricityBillSensor(coordinator, description)
         for description in SENSOR_DESCRIPTIONS
+        if description.key != "cycle_unmetered_kwh" or coordinator.main_meter
     ]
     async_add_entities(entities)
 

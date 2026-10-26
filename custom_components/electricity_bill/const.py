@@ -8,6 +8,8 @@ CONF_NAME = "name"
 CONF_SOURCES = "sources"
 CONF_FALLBACK_RATE = "fallback_rate"
 CONF_AI_TASK_ENTITY = "ai_task_entity"
+CONF_MAIN_METER = "main_meter"
+CONF_RESET_BUTTON = "reset_button"
 
 # Defaults
 DEFAULT_NAME = "Electricity Bill"

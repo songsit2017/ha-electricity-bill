@@ -174,7 +174,7 @@ class ElectricityBillOptionsFlow(config_entries.OptionsFlow):
             ): TextSelector(),
         }
         for key, lo, hi, step in (
-            (CONF_FT_RATE, -10.0, 10.0, 0.0001),
+            (CONF_FT_RATE, -10.0, 10.0, "any"),
             (CONF_SERVICE_CHARGE, 0.0, 100000.0, 0.01),
             (CONF_VAT_PERCENT, 0.0, 100.0, 0.01),
             (CONF_CUTOFF_DAY_30, 1, 28, 1),

@@ -1,6 +1,7 @@
 """Unit tests for calc.py math and data manipulation helpers."""
 from datetime import date
 from pathlib import Path
+import re
 import sys
 import pytest
 
@@ -967,3 +968,12 @@ def test_custom_tiers_work_with_estimate_bill():
     # 100*0.2 + 50*0.3 = 35; + service 5 = 40; vat 10% = 4
     assert b["energy_charge"] == 35.0
     assert b["total"] == 44.0
+
+
+def test_config_flow_number_steps_respect_ha_minimum():
+    """HA rejects NumberSelector steps below 0.001 (the options flow then fails to open)."""
+    src = (PKG_DIR / "config_flow.py").read_text(encoding="utf-8")
+    for match in re.finditer(r"step\s*=\s*([0-9.]+)", src):
+        assert float(match.group(1)) >= 0.001, match.group(0)
+    for match in re.finditer(r"\(\s*CONF_[A-Z_0-9]+\s*,[^)]*,\s*([0-9.]+)\s*\)", src):
+        assert float(match.group(1)) >= 0.001, match.group(0)

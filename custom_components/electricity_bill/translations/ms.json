@@ -1,0 +1,235 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Bil Elektrik",
+        "description": "Konfigurasikan penjejak bil elektrik dan pilih penderia tenaga sumber.",
+        "data": {
+          "name": "Nama",
+          "sources": "Penderia Tenaga Sumber",
+          "fallback_rate": "Kadar Sandaran (THB/kWh)"
+        }
+      }
+    },
+    "error": {
+      "no_sources": "Sila pilih sekurang-kurangnya satu penderia tenaga."
+    },
+    "abort": {
+      "already_configured": "Hanya satu tika Bil Elektrik dibenarkan."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Pilihan Bil Elektrik",
+        "description": "Kemas kini meter utama, penderia tenaga dan kadar sandaran.",
+        "data": {
+          "main_meter": "Meter utama (seluruh rumah) (pilihan)",
+          "reset_button": "Butang tetap semula meter utama (pilihan)",
+          "sources": "Penderia Tenaga Sumber (submeter apabila meter utama ditetapkan)",
+          "fallback_rate": "Kadar Sandaran (THB/kWh)",
+          "ai_task_entity": "Entiti AI Task (pilihan)"
+        },
+        "data_description": {
+          "main_meter": "Penderia tenaga seluruh rumah. Apabila ditetapkan, tenaga dan kos kitaran hanya menggunakan meter ini; sumber di bawah hanya untuk pecahan.",
+          "reset_button": "Butang yang ditekan secara automatik selepas anda menambah bil yang lebih baharu (cth. tetap semula tenaga pemutus litar). Tenaga yang digunakan sejak tarikh bil dikekalkan.",
+          "sources": "Submeter untuk pecahan. Biarkan kosong jika anda hanya mempunyai meter utama."
+        }
+      },
+      "tariff": {
+        "title": "Tarif, hari bil dan bajet",
+        "description": "Pilihan. Dengan profil tarif, integrasi menganggarkan bil penuh (peringkat, tambahan per kWh seperti Ft, caj bulanan tetap, cukai) dan meramalkannya hingga hari bil seterusnya. Dengan \"none\", anggaran menggunakan kadar berkesan bil terakhir anda dan tiada apa yang perlu diisi di sini.",
+        "data": {
+          "tariff_profile": "Profil tarif",
+          "tariff_tiers": "Peringkat tersuai (untuk profil \"custom\")",
+          "ft_rate": "Tambahan per kWh (cth. Ft, THB/kWh)",
+          "service_charge": "Caj bulanan tetap",
+          "vat_percent": "Cukai / VAT (%)",
+          "cutoff_day_30": "Hari bil dalam bulan 30 hari",
+          "cutoff_day_31": "Hari bil dalam bulan 31 hari",
+          "cutoff_day_feb": "Hari bil pada bulan Februari",
+          "budget_threshold": "Ambang amaran bajet (kos setiap kitaran)",
+          "high_usage_factor": "Amaran penggunaan harian tinggi (x purata kitaran)"
+        },
+        "data_description": {
+          "tariff_profile": "none = anggar dengan kadar berkesan bil terakhir. thailand_residential = peringkat kediaman PEA/MEA Thailand (daripada bil Sep 2026). custom = peringkat anda sendiri.",
+          "tariff_tiers": "Format \"200:3.0, 400:4.1584, 4.3583\": had atas terkumpul dalam kWh dan kadar per kWh; peringkat terakhir tanpa had.",
+          "cutoff_day_30": "Tetapkan hari yang sama dalam ketiga-tiga medan jika hari bil anda tetap. Biarkan kosong untuk melumpuhkan penderia hari bil seterusnya dan ramalan.",
+          "budget_threshold": "Mencetuskan acara electricity_bill_budget_exceeded sekali setiap kitaran apabila anggaran bil mencapai jumlah ini.",
+          "high_usage_factor": "Mencetuskan acara electricity_bill_high_usage sekali sehari apabila tenaga hari ini mencapai gandaan ini bagi purata harian kitaran (dan sekurang-kurangnya 2 kWh). Biarkan kosong untuk melumpuhkan."
+        }
+      }
+    },
+    "error": {
+      "no_sources": "Pilih meter utama atau sekurang-kurangnya satu penderia tenaga.",
+      "invalid_tiers": "Peringkat tidak sah. Gunakan \"had:kadar, had:kadar, kadar\" dengan had yang meningkat."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "cycle_kwh": {
+        "name": "Tenaga Kitaran"
+      },
+      "effective_rate": {
+        "name": "Kadar Berkesan"
+      },
+      "cycle_cost_estimate": {
+        "name": "Anggaran Kos Kitaran"
+      },
+      "last_bill_amount": {
+        "name": "Jumlah Bil Terakhir"
+      },
+      "last_bill_kwh": {
+        "name": "Tenaga Bil Terakhir"
+      },
+      "last_bill_unmetered_kwh": {
+        "name": "Tenaga Tanpa Meter Bil Terakhir"
+      },
+      "bill_history": {
+        "name": "Sejarah Bil"
+      },
+      "cycle_unmetered_kwh": {
+        "name": "Tenaga Kitaran Tanpa Submeter"
+      },
+      "cycle_bill_estimate": {
+        "name": "Anggaran Bil Kitaran"
+      },
+      "forecast_bill": {
+        "name": "Ramalan Bil"
+      },
+      "next_cutoff_date": {
+        "name": "Hari Bil Seterusnya"
+      },
+      "today_kwh": {
+        "name": "Tenaga Hari Ini"
+      },
+      "yesterday_kwh": {
+        "name": "Tenaga Semalam"
+      },
+      "daily_average_kwh": {
+        "name": "Purata Tenaga Harian"
+      }
+    }
+  },
+  "services": {
+    "add_bill": {
+      "name": "Tambah Bil",
+      "description": "Rekod bil elektrik bulanan, kemas kini kadar seunit dan tetap semula garis asas kitaran.",
+      "fields": {
+        "period_start": {
+          "name": "Tarikh Mula Tempoh",
+          "description": "Hari pertama tempoh bil (YYYY-MM-DD, pilihan)."
+        },
+        "period_end": {
+          "name": "Tarikh Akhir Tempoh",
+          "description": "Hari terakhir tempoh bil yang diliputi bil (YYYY-MM-DD, lalai hari ini)."
+        },
+        "kwh": {
+          "name": "Jumlah kWh",
+          "description": "Jumlah tenaga dalam kWh daripada bil."
+        },
+        "amount": {
+          "name": "Jumlah Keseluruhan",
+          "description": "Jumlah keseluruhan yang dibil dalam THB."
+        },
+        "energy_charge": {
+          "name": "Caj Tenaga",
+          "description": "Caj elektrik asas dalam THB (pilihan)."
+        },
+        "ft_charge": {
+          "name": "Caj Ft",
+          "description": "Caj pelarasan bahan api (Ft) dalam THB, boleh negatif (pilihan)."
+        },
+        "service_charge": {
+          "name": "Caj Perkhidmatan",
+          "description": "Caj perkhidmatan bulanan dalam THB (pilihan)."
+        },
+        "vat": {
+          "name": "VAT",
+          "description": "Cukai Nilai Tambah (7%) dalam THB (pilihan)."
+        },
+        "note": {
+          "name": "Nota",
+          "description": "Nota atau komen pilihan."
+        },
+        "replace": {
+          "name": "Ganti",
+          "description": "Benarkan menimpa bil sedia ada dengan tarikh akhir tempoh yang sama."
+        }
+      }
+    },
+    "remove_bill": {
+      "name": "Buang Bil",
+      "description": "Buang bil mengikut ID atau tarikh akhir tempoh.",
+      "fields": {
+        "id": {
+          "name": "ID Bil",
+          "description": "UUID bil yang hendak dibuang."
+        },
+        "period_end": {
+          "name": "Tarikh Akhir Tempoh",
+          "description": "Tarikh akhir tempoh bil yang hendak dibuang (YYYY-MM-DD)."
+        }
+      }
+    },
+    "reset_cycle": {
+      "name": "Tetap Semula Kitaran",
+      "description": "Tetap semula garis asas kitaran kepada keadaan penderia semasa tanpa merekod bil."
+    },
+    "set_baseline": {
+      "name": "Tetapkan Garis Asas",
+      "description": "Tetapkan garis asas kitaran bagi satu penderia sumber kepada nilai meter (tenaga kitaran = nilai semasa - garis asas). Gunakan 0 bagi pembilang yang bermula pada 0.",
+      "fields": {
+        "entity_id": {
+          "name": "Penderia sumber",
+          "description": "Entiti penderia sumber."
+        },
+        "value": {
+          "name": "Nilai garis asas (kWh)",
+          "description": "Nilai meter pada permulaan kitaran (lalai 0)."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "duplicate_period_end": {
+      "message": "Bil dengan tarikh akhir tempoh {period_end} sudah wujud. Hantar replace: true untuk menimpa."
+    },
+    "invalid_kwh": {
+      "message": "kWh mestilah lebih besar daripada sifar."
+    },
+    "invalid_amount": {
+      "message": "Jumlah mestilah lebih besar daripada sifar."
+    },
+    "invalid_date": {
+      "message": "Format tarikh period_end tidak sah. Dijangka YYYY-MM-DD."
+    },
+    "invalid_period": {
+      "message": "Tarikh mula tempoh mestilah sebelum atau sama dengan tarikh akhir tempoh."
+    },
+    "invalid_charge": {
+      "message": "Jumlah caj mestilah nombor terhingga yang sah dan bukan negatif (kecuali Ft)."
+    },
+    "bill_not_found": {
+      "message": "Bil dengan ID atau tarikh akhir tempoh yang ditentukan tidak dijumpai."
+    },
+    "missing_bill_identifier": {
+      "message": "id atau period_end mesti diberikan untuk membuang bil."
+    },
+    "no_energy_sources": {
+      "message": "Tiada sumber tenaga dikonfigurasikan."
+    },
+    "unknown_source": {
+      "message": "{entity_id} bukan salah satu penderia sumber yang dikonfigurasikan."
+    }
+  },
+  "selector": {
+    "tariff_profile": {
+      "options": {
+        "none": "Tiada (guna kadar berkesan)",
+        "thailand_residential": "Kediaman Thailand (PEA/MEA)",
+        "custom": "Peringkat tersuai"
+      }
+    }
+  }
+}

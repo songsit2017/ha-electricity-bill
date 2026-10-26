@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.11.0
+- Languages: Vietnamese, Malay, Indonesian and Russian added to the panel and to the configuration screens (with Thai and English). Translations were machine-written; native review of the new languages is welcome (panel texts in the `I18N` object of `frontend/panel.js`, config texts in `translations/*.json`).
+
 ## 0.10.0
 - New sensors `Today Energy`, `Yesterday Energy`, `Daily Average Energy` (day start is tracked in the integration's own storage and survives restarts).
 - Optional high-usage alert: option `high_usage_factor`, event `electricity_bill_high_usage` once per day.

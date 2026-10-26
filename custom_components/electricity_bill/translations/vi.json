@@ -1,0 +1,235 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Hóa đơn điện",
+        "description": "Cấu hình theo dõi hóa đơn điện và chọn các cảm biến điện năng nguồn.",
+        "data": {
+          "name": "Tên",
+          "sources": "Cảm biến điện năng nguồn",
+          "fallback_rate": "Đơn giá dự phòng (THB/kWh)"
+        }
+      }
+    },
+    "error": {
+      "no_sources": "Vui lòng chọn ít nhất một cảm biến điện năng."
+    },
+    "abort": {
+      "already_configured": "Chỉ cho phép một bản Hóa đơn điện."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Tùy chọn Hóa đơn điện",
+        "description": "Cập nhật công tơ chính, các cảm biến điện năng và đơn giá dự phòng.",
+        "data": {
+          "main_meter": "Công tơ chính (cả nhà) (tùy chọn)",
+          "reset_button": "Nút đặt lại công tơ chính (tùy chọn)",
+          "sources": "Cảm biến điện năng nguồn (công tơ phụ khi đã đặt công tơ chính)",
+          "fallback_rate": "Đơn giá dự phòng (THB/kWh)",
+          "ai_task_entity": "Thực thể AI Task (tùy chọn)"
+        },
+        "data_description": {
+          "main_meter": "Cảm biến điện năng cả nhà. Khi đặt, điện năng và chi phí của kỳ chỉ dùng công tơ này; các nguồn bên dưới chỉ để phân tách.",
+          "reset_button": "Nút được nhấn tự động sau khi bạn thêm hóa đơn mới hơn (vd. đặt lại điện năng của aptomat). Điện năng đã dùng từ ngày hóa đơn được giữ lại.",
+          "sources": "Công tơ phụ để phân tách. Để trống nếu chỉ có công tơ chính."
+        }
+      },
+      "tariff": {
+        "title": "Biểu giá, ngày chốt và ngân sách",
+        "description": "Tùy chọn. Với hồ sơ biểu giá, tích hợp ước tính hóa đơn đầy đủ (bậc thang, phụ thu theo kWh như Ft, phí cố định hằng tháng, thuế) và dự báo đến ngày chốt tiếp theo. Với \"none\", ước tính dùng đơn giá thực tế của hóa đơn gần nhất và không cần điền gì ở đây.",
+        "data": {
+          "tariff_profile": "Hồ sơ biểu giá",
+          "tariff_tiers": "Bậc thang tùy chỉnh (cho hồ sơ \"custom\")",
+          "ft_rate": "Phụ thu theo kWh (vd. Ft, THB/kWh)",
+          "service_charge": "Phí cố định hằng tháng",
+          "vat_percent": "Thuế / VAT (%)",
+          "cutoff_day_30": "Ngày chốt trong tháng 30 ngày",
+          "cutoff_day_31": "Ngày chốt trong tháng 31 ngày",
+          "cutoff_day_feb": "Ngày chốt trong tháng Hai",
+          "budget_threshold": "Ngưỡng cảnh báo ngân sách (chi phí mỗi kỳ)",
+          "high_usage_factor": "Cảnh báo dùng điện trong ngày cao (x mức trung bình kỳ)"
+        },
+        "data_description": {
+          "tariff_profile": "none = ước tính theo đơn giá thực tế của hóa đơn gần nhất. thailand_residential = bậc giá sinh hoạt PEA/MEA của Thái Lan (từ hóa đơn tháng 9/2026). custom = bậc thang của bạn.",
+          "tariff_tiers": "Định dạng \"200:3.0, 400:4.1584, 4.3583\": giới hạn trên tích lũy theo kWh và đơn giá mỗi kWh; bậc cuối không giới hạn.",
+          "cutoff_day_30": "Đặt cùng một ngày ở cả ba ô nếu ngày chốt cố định. Để trống để tắt cảm biến ngày chốt tiếp theo và dự báo.",
+          "budget_threshold": "Phát sự kiện electricity_bill_budget_exceeded một lần mỗi kỳ khi hóa đơn ước tính đạt mức này.",
+          "high_usage_factor": "Phát sự kiện electricity_bill_high_usage mỗi ngày một lần khi điện năng hôm nay đạt bội số này của mức trung bình theo ngày của kỳ (và ít nhất 2 kWh). Để trống để tắt."
+        }
+      }
+    },
+    "error": {
+      "no_sources": "Chọn một công tơ chính hoặc ít nhất một cảm biến điện năng.",
+      "invalid_tiers": "Bậc thang không hợp lệ. Dùng \"giới hạn:đơn giá, giới hạn:đơn giá, đơn giá\" với giới hạn tăng dần."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "cycle_kwh": {
+        "name": "Điện năng kỳ này"
+      },
+      "effective_rate": {
+        "name": "Đơn giá thực tế"
+      },
+      "cycle_cost_estimate": {
+        "name": "Ước tính chi phí kỳ này"
+      },
+      "last_bill_amount": {
+        "name": "Số tiền hóa đơn gần nhất"
+      },
+      "last_bill_kwh": {
+        "name": "Điện năng hóa đơn gần nhất"
+      },
+      "last_bill_unmetered_kwh": {
+        "name": "Điện không đo của hóa đơn gần nhất"
+      },
+      "bill_history": {
+        "name": "Lịch sử hóa đơn"
+      },
+      "cycle_unmetered_kwh": {
+        "name": "Điện chưa có công tơ phụ kỳ này"
+      },
+      "cycle_bill_estimate": {
+        "name": "Ước tính hóa đơn kỳ này"
+      },
+      "forecast_bill": {
+        "name": "Dự báo hóa đơn"
+      },
+      "next_cutoff_date": {
+        "name": "Ngày chốt tiếp theo"
+      },
+      "today_kwh": {
+        "name": "Điện năng hôm nay"
+      },
+      "yesterday_kwh": {
+        "name": "Điện năng hôm qua"
+      },
+      "daily_average_kwh": {
+        "name": "Điện năng trung bình mỗi ngày"
+      }
+    }
+  },
+  "services": {
+    "add_bill": {
+      "name": "Thêm hóa đơn",
+      "description": "Ghi một hóa đơn điện hằng tháng, cập nhật đơn giá và đặt lại mốc của kỳ.",
+      "fields": {
+        "period_start": {
+          "name": "Ngày bắt đầu kỳ",
+          "description": "Ngày đầu tiên của kỳ hóa đơn (YYYY-MM-DD, tùy chọn)."
+        },
+        "period_end": {
+          "name": "Ngày kết thúc kỳ",
+          "description": "Ngày cuối của kỳ hóa đơn mà hóa đơn bao trùm (YYYY-MM-DD, mặc định là hôm nay)."
+        },
+        "kwh": {
+          "name": "Tổng kWh",
+          "description": "Tổng điện năng theo kWh trên hóa đơn."
+        },
+        "amount": {
+          "name": "Tổng số tiền",
+          "description": "Tổng số tiền trên hóa đơn (THB)."
+        },
+        "energy_charge": {
+          "name": "Tiền điện năng",
+          "description": "Tiền điện cơ bản (THB, tùy chọn)."
+        },
+        "ft_charge": {
+          "name": "Phụ thu Ft",
+          "description": "Phụ thu điều chỉnh nhiên liệu (Ft) bằng THB, có thể âm (tùy chọn)."
+        },
+        "service_charge": {
+          "name": "Phí dịch vụ",
+          "description": "Phí dịch vụ hằng tháng bằng THB (tùy chọn)."
+        },
+        "vat": {
+          "name": "VAT",
+          "description": "Thuế giá trị gia tăng (7%) bằng THB (tùy chọn)."
+        },
+        "note": {
+          "name": "Ghi chú",
+          "description": "Ghi chú hoặc nhận xét tùy chọn."
+        },
+        "replace": {
+          "name": "Thay thế",
+          "description": "Cho phép ghi đè hóa đơn hiện có có cùng ngày kết thúc kỳ."
+        }
+      }
+    },
+    "remove_bill": {
+      "name": "Xóa hóa đơn",
+      "description": "Xóa hóa đơn theo ID hoặc ngày kết thúc kỳ.",
+      "fields": {
+        "id": {
+          "name": "ID hóa đơn",
+          "description": "UUID của hóa đơn cần xóa."
+        },
+        "period_end": {
+          "name": "Ngày kết thúc kỳ",
+          "description": "Ngày kết thúc kỳ của hóa đơn cần xóa (YYYY-MM-DD)."
+        }
+      }
+    },
+    "reset_cycle": {
+      "name": "Đặt lại kỳ",
+      "description": "Đặt lại mốc của kỳ về trạng thái cảm biến hiện tại mà không ghi hóa đơn."
+    },
+    "set_baseline": {
+      "name": "Đặt mốc bắt đầu",
+      "description": "Đặt mốc của kỳ cho một cảm biến nguồn theo giá trị công tơ (điện năng kỳ = giá trị hiện tại - mốc). Dùng 0 cho bộ đếm bắt đầu từ 0.",
+      "fields": {
+        "entity_id": {
+          "name": "Cảm biến nguồn",
+          "description": "Thực thể cảm biến nguồn."
+        },
+        "value": {
+          "name": "Giá trị mốc (kWh)",
+          "description": "Giá trị công tơ tại thời điểm bắt đầu kỳ (mặc định 0)."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "duplicate_period_end": {
+      "message": "Đã có hóa đơn kết thúc kỳ {period_end}. Truyền replace: true để ghi đè."
+    },
+    "invalid_kwh": {
+      "message": "kWh phải lớn hơn không."
+    },
+    "invalid_amount": {
+      "message": "Số tiền phải lớn hơn không."
+    },
+    "invalid_date": {
+      "message": "Định dạng ngày period_end không hợp lệ. Cần YYYY-MM-DD."
+    },
+    "invalid_period": {
+      "message": "Ngày bắt đầu kỳ phải trước hoặc bằng ngày kết thúc kỳ."
+    },
+    "invalid_charge": {
+      "message": "Các khoản phí phải là số hữu hạn hợp lệ và không âm (trừ Ft)."
+    },
+    "bill_not_found": {
+      "message": "Không tìm thấy hóa đơn với ID hoặc ngày kết thúc kỳ đã chỉ định."
+    },
+    "missing_bill_identifier": {
+      "message": "Cần cung cấp id hoặc period_end để xóa hóa đơn."
+    },
+    "no_energy_sources": {
+      "message": "Chưa cấu hình nguồn điện năng nào."
+    },
+    "unknown_source": {
+      "message": "{entity_id} không phải là một trong các cảm biến nguồn đã cấu hình."
+    }
+  },
+  "selector": {
+    "tariff_profile": {
+      "options": {
+        "none": "Không dùng (theo đơn giá thực tế)",
+        "thailand_residential": "Hộ gia đình Thái Lan (PEA/MEA)",
+        "custom": "Bậc thang tùy chỉnh"
+      }
+    }
+  }
+}

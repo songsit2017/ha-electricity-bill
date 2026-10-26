@@ -21,9 +21,11 @@ Home Assistant custom integration สำหรับบันทึกบิล�
 
 1. เปิด **Home Assistant** ไปที่เมนู **HACS** > **Integrations**
 2. กดเมนูสามจุดมุมขวาบน เลือก **Custom repositories**
-3. ใส่ Repository URL ของโปรเจกต์นี้ เลือกหมวดหมู่ (Category) เป็น **Integration** แล้วกด **Add**
+3. ใส่ Repository URL `https://github.com/songsit2017/ha-electricity-bill` เลือกหมวดหมู่ (Category) เป็น **Integration** แล้วกด **Add**
 4. ค้นหา **Electricity Bill** แล้วกด **Download**
 5. รีสตาร์ท Home Assistant
+
+เมื่อมีเวอร์ชันใหม่ (GitHub Release) HACS จะแจ้งในหน้า Updates ของ Home Assistant และกดอัปเดตได้ทันที (รีสตาร์ท HA หลังอัปเดต)
 
 ---
 
@@ -86,6 +88,18 @@ data:
 ```yaml
 action: electricity_bill.reset_cycle
 ```
+
+### 4. `electricity_bill.set_baseline`
+ตั้งจุดเริ่มนับของเซ็นเซอร์ต้นทางหนึ่งตัวเป็นค่ามิเตอร์ที่ระบุ (พลังงานรอบนี้ = ค่าปัจจุบัน − จุดเริ่มนับ) ใช้เมื่อเพิ่งเพิ่มเซ็นเซอร์ที่ตัวนับเริ่มจาก 0 อยู่แล้ว เช่น เบรกเกอร์หลักตัวใหม่ แล้วต้องการนับยอดสะสมทั้งหมดเป็นของรอบนี้
+
+```yaml
+action: electricity_bill.set_baseline
+data:
+  entity_id: sensor.main_breaker_energy  # ต้องเป็นหนึ่งใน Source Energy Sensors
+  value: 0                               # ค่ามิเตอร์ ณ จุดเริ่มรอบ (ค่าเริ่มต้น 0)
+```
+
+> เคล็ดลับ: ถ้ามีเบรกเกอร์/มิเตอร์วัดไฟรวมทั้งบ้านตัวเดียว ให้ใส่เป็น Source เพียงตัวเดียว ไม่ต้องใส่มิเตอร์ย่อยซ้ำ ไม่เช่นนั้นหน่วยจะถูกนับซ้ำ
 
 ---
 

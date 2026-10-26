@@ -29,6 +29,7 @@ STORAGE_VERSION = 1
 SERVICE_ADD_BILL = "add_bill"
 SERVICE_REMOVE_BILL = "remove_bill"
 SERVICE_RESET_CYCLE = "reset_cycle"
+SERVICE_SET_BASELINE = "set_baseline"
 
 # Service Attributes
 ATTR_PERIOD_START = "period_start"

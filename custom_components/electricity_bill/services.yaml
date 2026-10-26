@@ -77,3 +77,21 @@ remove_bill:
         date: {}
 
 reset_cycle: {}
+
+set_baseline:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          domain: sensor
+          device_class: energy
+    value:
+      required: false
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 10000000
+          step: 0.001
+          mode: box

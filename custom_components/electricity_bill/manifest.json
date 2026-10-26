@@ -1,7 +1,7 @@
 {
   "domain": "electricity_bill",
   "name": "Electricity Bill",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "config_flow": true,
   "documentation": "https://github.com/songsit2017/ha-electricity-bill",
   "issue_tracker": "https://github.com/songsit2017/ha-electricity-bill/issues",
@@ -15,7 +15,9 @@
     "ai_task",
     "media_source"
   ],
-  "codeowners": [],
+  "codeowners": [
+    "@songsit2017"
+  ],
   "requirements": [],
   "iot_class": "calculated"
 }

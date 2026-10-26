@@ -608,6 +608,8 @@ class ElectricityBillPanel extends HTMLElement {
       "sensor.electricity_bill_last_bill_energy",
       "sensor.electricity_bill_last_bill_unmetered_energy",
       "sensor.electricity_bill_cycle_unmetered_energy",
+      "sensor.electricity_bill_cycle_bill_estimate",
+      "sensor.electricity_bill_forecast_bill",
       "sensor.electricity_bill_bill_history",
     ];
     const sig =
@@ -674,7 +676,10 @@ class ElectricityBillPanel extends HTMLElement {
     this._renderBaselineOptions();
     const rate = this._st("sensor.electricity_bill_effective_rate");
     const cyc = this._st("sensor.electricity_bill_cycle_energy");
-    const cost = this._st("sensor.electricity_bill_cycle_cost_estimate");
+    const costSimple = this._st("sensor.electricity_bill_cycle_cost_estimate");
+    const costTariff = this._st("sensor.electricity_bill_cycle_bill_estimate");
+    const cost = costTariff || costSimple;
+    const fc = this._st("sensor.electricity_bill_forecast_bill");
     const lastAmt = this._st("sensor.electricity_bill_last_bill_amount");
     const lastKwh = this._st("sensor.electricity_bill_last_bill_energy");
     const unm = this._st("sensor.electricity_bill_last_bill_unmetered_energy");
@@ -694,7 +699,11 @@ class ElectricityBillPanel extends HTMLElement {
         el("span", { class: "chip" }, icon(fromBill ? "mdi:check-decagram" : "mdi:information-outline"), fromBill ? "อัตราจากบิลจริง" : "ใช้อัตราสำรอง (ยังไม่มีบิล)")
       );
     }
-    if (cost && cyc && Number(days) >= 3) {
+    if (fc) {
+      const cd = fc.attributes.cutoff_date ? new Date(fc.attributes.cutoff_date + "T00:00:00") : null;
+      const cdTxt = cd ? " (ตัดรอบ " + cd.getDate() + "/" + (cd.getMonth() + 1) + ")" : "";
+      this._heroChips.append(el("span", { class: "chip" }, icon("mdi:trending-up"), "คาดการณ์ถึงวันตัดรอบ ≈ ฿" + num(fc.state, 0) + cdTxt));
+    } else if (cost && cyc && Number(days) >= 3) {
       const proj = (Number(cost.state) / Number(days)) * 30;
       this._heroChips.append(el("span", { class: "chip" }, icon("mdi:trending-up"), "คาดการณ์ 30 วัน ≈ ฿" + num(proj, 0)));
     }

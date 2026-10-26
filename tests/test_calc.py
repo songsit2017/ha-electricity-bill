@@ -873,3 +873,97 @@ def test_recompute_bills_only_uses_main_meter_for_measured():
     assert out[1]["measured_kwh"] == 300.0
     out_all = calc.recompute_bills(bills)
     assert out_all[1]["measured_kwh"] == 420.0
+
+
+# ---------------------------------------------------------------- tariff (Phase 3)
+OVER_150 = ((200, 3.0), (400, 4.1584), (None, 4.3583))
+UP_TO_150 = ((15, 2.3488), (25, 2.9882), (200, 3.0), (400, 4.1584), (None, 4.3583))
+
+
+def _bill(kwh):
+    return calc.estimate_bill(kwh, OVER_150, UP_TO_150, 150, 0.1623, 24.62, 7.0)
+
+
+def test_estimate_bill_matches_real_september_bill():
+    b = _bill(708)
+    assert abs(b["energy_charge"] - 2774.04) < 0.1
+    assert b["ft_charge"] == 114.91
+    assert b["service_charge"] == 24.62
+    assert abs(b["total"] - 3117.52) < 0.15
+
+
+def test_estimate_bill_matches_real_october_bill():
+    b = _bill(862)
+    assert abs(b["energy_charge"] - 3445.21) < 0.1
+    assert b["ft_charge"] == 139.90
+    assert abs(b["total"] - 3862.41) < 0.15
+
+
+def test_progressive_charge_steps():
+    assert calc.calculate_progressive_energy_charge(200, OVER_150) == 600.0
+    assert calc.calculate_progressive_energy_charge(250, OVER_150) == round(600 + 50 * 4.1584, 2)
+    assert calc.calculate_progressive_energy_charge(0, OVER_150) == 0.0
+
+
+def test_small_user_uses_low_tiers():
+    # 100 kWh: 15*2.3488 + 10*2.9882 + 75*3.0
+    assert calc.calculate_progressive_energy_charge(100, UP_TO_150) == round(
+        15 * 2.3488 + 10 * 2.9882 + 75 * 3.0, 2
+    )
+    assert _bill(100)["energy_charge"] == calc.calculate_progressive_energy_charge(100, UP_TO_150)
+
+
+def test_estimate_bill_zero_kwh_has_no_charges():
+    b = _bill(0)
+    assert b["total"] == 0.0
+
+
+def test_cutoff_day_rule_by_month_length():
+    assert calc.cutoff_day_for_month(2026, 9, 24, 25, 24) == date(2026, 9, 24)
+    assert calc.cutoff_day_for_month(2026, 10, 24, 25, 24) == date(2026, 10, 25)
+    assert calc.cutoff_day_for_month(2027, 2, 24, 25, 23) == date(2027, 2, 23)
+
+
+def test_next_cutoff_date_rolls_over():
+    assert calc.next_cutoff_date(date(2026, 10, 25), 24, 25, 24) == date(2026, 10, 25)
+    assert calc.next_cutoff_date(date(2026, 10, 26), 24, 25, 24) == date(2026, 11, 24)
+    assert calc.next_cutoff_date(date(2026, 12, 26), 24, 25, 24) == date(2027, 1, 25)
+
+
+def test_forecast_cycle_kwh():
+    # cycle started 2026-10-25, now 2026-11-04 (10 days, 100 kWh), cut-off 2026-11-24 (30 days)
+    per_day, forecast, total_days = calc.forecast_cycle_kwh(
+        100, "2026-10-25", date(2026, 11, 4), date(2026, 11, 24)
+    )
+    assert total_days == 30
+    assert per_day == 10.0
+    assert forecast == 300.0
+
+
+def test_forecast_needs_cycle_start():
+    assert calc.forecast_cycle_kwh(10, None, date(2026, 11, 4), date(2026, 11, 24)) is None
+
+
+def test_parse_tariff_tiers_custom():
+    assert calc.parse_tariff_tiers("200:3.0, 400:4.1584, 4.3583") == (
+        (200.0, 3.0),
+        (400.0, 4.1584),
+        (None, 4.3583),
+    )
+    # a single flat rate, and an explicit open last tier
+    assert calc.parse_tariff_tiers("0.25") == ((None, 0.25),)
+    assert calc.parse_tariff_tiers("100:0.2; :0.3") == ((100.0, 0.2), (None, 0.3))
+
+
+@pytest.mark.parametrize("bad", ["", "abc", "200:3, 100:4, 5", "200:-1, 3", ":3, 4"])
+def test_parse_tariff_tiers_rejects_bad_input(bad):
+    with pytest.raises(ValueError):
+        calc.parse_tariff_tiers(bad)
+
+
+def test_custom_tiers_work_with_estimate_bill():
+    tiers = calc.parse_tariff_tiers("100:0.2, 0.3")
+    b = calc.estimate_bill(150, tiers, tiers, 0, 0.0, 5.0, 10.0)
+    # 100*0.2 + 50*0.3 = 35; + service 5 = 40; vat 10% = 4
+    assert b["energy_charge"] == 35.0
+    assert b["total"] == 44.0

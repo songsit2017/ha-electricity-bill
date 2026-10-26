@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0
+- Tariff profiles (`none` default, `thailand_residential`, `custom` tiers) with per-kWh adder (Ft), fixed monthly charge and tax; new sensors `Cycle Bill Estimate`, `Forecast Bill`, `Next Billing Day`.
+- Billing day by month length (30 / 31 / February) with forecast to the next billing day.
+- Events `electricity_bill_cutoff_day` (12:00 on the billing day) and `electricity_bill_budget_exceeded` (optional budget threshold, once per cycle).
+- Monetary sensors follow the Home Assistant currency instead of a fixed THB.
+- Panel: hero uses the tariff estimate and shows the forecast to the billing day.
+- Verified against the real September and October 2026 PEA bills.
+
 ## 0.5.0
 - Main (whole-house) meter option: cycle energy and cost use the main meter only; the other sources become sub-meters for the breakdown.
 - New sensor `Cycle Unmetered Energy` (main meter minus sub-meters), created when a main meter is set.

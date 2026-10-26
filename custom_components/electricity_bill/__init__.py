@@ -18,7 +18,10 @@ from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ServiceValidationError
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_change,
+)
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
@@ -29,6 +32,10 @@ from .calc import (
     calculate_cycle_cost,
     calculate_cycle_kwh,
     calculate_cycle_unmetered_kwh,
+    estimate_bill,
+    forecast_cycle_kwh,
+    next_cutoff_date,
+    parse_tariff_tiers,
     calculate_source_delta,
     calculate_days_in_cycle,
     calculate_rate,
@@ -49,11 +56,35 @@ from .const import (
     ATTR_REPLACE,
     ATTR_SERVICE_CHARGE,
     ATTR_VAT,
+    CONF_BUDGET_THRESHOLD,
+    CONF_CUTOFF_DAY_30,
+    CONF_CUTOFF_DAY_31,
+    CONF_CUTOFF_DAY_FEB,
     CONF_FALLBACK_RATE,
+    CONF_FT_RATE,
     CONF_MAIN_METER,
+    CONF_TARIFF_PROFILE,
+    CONF_TARIFF_TIERS,
     CONF_NAME,
     CONF_RESET_BUTTON,
+    CONF_SERVICE_CHARGE,
     CONF_SOURCES,
+    CONF_VAT_PERCENT,
+    DEFAULT_TARIFF_PROFILE,
+    PROFILE_CUSTOM,
+    PROFILE_NONE,
+    PROFILE_THAILAND,
+    THAILAND_CUTOFF_DAY_30,
+    THAILAND_CUTOFF_DAY_31,
+    THAILAND_CUTOFF_DAY_FEB,
+    THAILAND_FT_RATE,
+    THAILAND_SERVICE_CHARGE,
+    THAILAND_VAT_PERCENT,
+    EVENT_BUDGET_EXCEEDED,
+    EVENT_CUTOFF_DAY,
+    TARIFF_SMALL_USER_LIMIT_KWH,
+    TARIFF_TIERS_OVER_150,
+    TARIFF_TIERS_UP_TO_150,
     DEFAULT_FALLBACK_RATE,
     DEFAULT_NAME,
     DOMAIN,
@@ -123,6 +154,85 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.cycle_snapshot: dict[str, float] = {}
         self._unsub_track: Callable[[], None] | None = None
         self._unsub_reset_watch: Callable[[], None] | None = None
+        self._unsub_time: list[Callable[[], None]] = []
+        self._budget_notified: str | None = None
+
+    def _opt(self, key: str, default: Any) -> Any:
+        value = self.entry.options.get(key, self.entry.data.get(key))
+        return default if value is None else value
+
+    @property
+    def tariff_profile(self) -> str:
+        profile = self._opt(CONF_TARIFF_PROFILE, DEFAULT_TARIFF_PROFILE)
+        return profile if profile in (PROFILE_NONE, PROFILE_THAILAND, PROFILE_CUSTOM) else PROFILE_NONE
+
+    def _profile_default(self, thailand_value: Any, other_value: Any) -> Any:
+        return thailand_value if self.tariff_profile == PROFILE_THAILAND else other_value
+
+    @property
+    def ft_rate(self) -> float:
+        return float(self._opt(CONF_FT_RATE, self._profile_default(THAILAND_FT_RATE, 0.0)))
+
+    @property
+    def service_charge(self) -> float:
+        return float(self._opt(CONF_SERVICE_CHARGE, self._profile_default(THAILAND_SERVICE_CHARGE, 0.0)))
+
+    @property
+    def vat_percent(self) -> float:
+        return float(self._opt(CONF_VAT_PERCENT, self._profile_default(THAILAND_VAT_PERCENT, 0.0)))
+
+    @property
+    def cutoff_days(self) -> tuple[int, int, int] | None:
+        """Billing day by month length (30-day, 31-day, February), or None when not set."""
+        d30 = self._opt(CONF_CUTOFF_DAY_30, self._profile_default(THAILAND_CUTOFF_DAY_30, None))
+        d31 = self._opt(CONF_CUTOFF_DAY_31, self._profile_default(THAILAND_CUTOFF_DAY_31, None))
+        dfeb = self._opt(CONF_CUTOFF_DAY_FEB, self._profile_default(THAILAND_CUTOFF_DAY_FEB, None))
+        if d30 is None or d31 is None:
+            return None
+        return int(d30), int(d31), int(dfeb if dfeb is not None else d30)
+
+    @property
+    def budget_threshold(self) -> float | None:
+        value = self._opt(CONF_BUDGET_THRESHOLD, None)
+        try:
+            value = float(value) if value not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+        return value if value and value > 0 else None
+
+    def _tiers(self) -> tuple[Any, Any, float] | None:
+        """Return (tiers_over, tiers_up_to, small_user_limit) of the profile, None without tiers."""
+        profile = self.tariff_profile
+        if profile == PROFILE_THAILAND:
+            return TARIFF_TIERS_OVER_150, TARIFF_TIERS_UP_TO_150, TARIFF_SMALL_USER_LIMIT_KWH
+        if profile == PROFILE_CUSTOM:
+            try:
+                tiers = parse_tariff_tiers(self._opt(CONF_TARIFF_TIERS, ""))
+            except ValueError:
+                _LOGGER.warning("Invalid custom tariff tiers; falling back to the effective rate")
+                return None
+            return tiers, tiers, 0.0
+        return None
+
+    def _estimate(self, kwh: float) -> dict[str, float]:
+        """Estimate a bill for ``kwh``: tiered tariff when configured, else effective rate."""
+        tiers = self._tiers()
+        if tiers is None:
+            latest = self.bills[-1] if self.bills else None
+            rate = float(latest.get("rate") or self.fallback_rate) if latest else self.fallback_rate
+            total = round(max(0.0, float(kwh)) * rate, 2)
+            return {
+                "energy_charge": total,
+                "ft_charge": 0.0,
+                "service_charge": 0.0,
+                "subtotal": total,
+                "vat": 0.0,
+                "total": total,
+            }
+        over, up_to, small_limit = tiers
+        return estimate_bill(
+            kwh, over, up_to, small_limit, self.ft_rate, self.service_charge, self.vat_percent
+        )
 
     @property
     def configured_sources(self) -> list[str]:
@@ -190,6 +300,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         stored = await self.store.async_load()
         self.bills = stored.get("bills", [])
         self.cycle_snapshot = stored.get("cycle_snapshot", {})
+        self._budget_notified = stored.get("budget_notified")
 
         # If baseline cycle snapshot is empty, initialize it from current states
         if not self.cycle_snapshot and self.sources:
@@ -216,6 +327,20 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self._update_internal_data()
 
+        @callback
+        def _midnight(_now: datetime) -> None:
+            self._update_internal_data()
+            self.async_update_listeners()
+
+        @callback
+        def _noon(_now: datetime) -> None:
+            self._fire_cutoff_event()
+
+        self._unsub_time = [
+            async_track_time_change(self.hass, _midnight, hour=0, minute=0, second=5),
+            async_track_time_change(self.hass, _noon, hour=12, minute=0, second=0),
+        ]
+
         if self.sources:
             @callback
             def _async_on_source_change(event: Event) -> None:
@@ -236,6 +361,9 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._unsub_reset_watch is not None:
             self._unsub_reset_watch()
             self._unsub_reset_watch = None
+        for unsub in self._unsub_time:
+            unsub()
+        self._unsub_time = []
 
     def get_current_snapshot(self) -> dict[str, float]:
         """Read current values from source sensors."""
@@ -377,6 +505,20 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         days_in_cycle = calculate_days_in_cycle(cycle_start, now_date_str)
         cycle_cost = calculate_cycle_cost(cycle_kwh, effective_rate)
 
+        today = dt_util.now().date()
+        cutoff_days = self.cutoff_days
+        cutoff = next_cutoff_date(today, *cutoff_days) if cutoff_days else None
+        bill_estimate = self._estimate(cycle_kwh)
+        forecast = (
+            forecast_cycle_kwh(cycle_kwh, cycle_start, today, cutoff) if cutoff else None
+        )
+        if forecast is not None:
+            kwh_per_day, forecast_kwh, forecast_days = forecast
+            forecast_bill = self._estimate(forecast_kwh)
+        else:
+            kwh_per_day = forecast_kwh = forecast_days = None
+            forecast_bill = None
+
         self.data = {
             "cycle_kwh": cycle_kwh,
             "per_source": per_source,
@@ -389,6 +531,18 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "rate_source": rate_source,
             "based_on_period_end": based_on_period_end,
             "cycle_cost_estimate": cycle_cost,
+            "cycle_bill_estimate": bill_estimate,
+            "next_cutoff": cutoff,
+            "forecast": (
+                {
+                    "kwh_per_day": kwh_per_day,
+                    "kwh": forecast_kwh,
+                    "days": forecast_days,
+                    "bill": forecast_bill,
+                }
+                if forecast_bill is not None
+                else None
+            ),
             "last_bill_amount": last_bill_amount,
             "last_bill_kwh": last_bill_kwh,
             "last_bill_unmetered_kwh": unmetered,
@@ -398,6 +552,51 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "bill_count": len(self.bills),
             "bill_history": format_bill_history(self.bills, max_items=24),
         }
+        self._check_budget()
+
+    @callback
+    def _check_budget(self) -> None:
+        """Fire a one-off event per cycle when the estimated bill reaches the budget."""
+        threshold = self.budget_threshold
+        if threshold is None or not self.data:
+            return
+        total = (self.data.get("cycle_bill_estimate") or {}).get("total", 0.0)
+        cycle_key = self.data.get("cycle_start") or "none"
+        if total < threshold or self._budget_notified == cycle_key:
+            return
+        self._budget_notified = cycle_key
+        self.hass.bus.async_fire(
+            EVENT_BUDGET_EXCEEDED,
+            {
+                "threshold": threshold,
+                "bill_estimate": total,
+                "cycle_kwh": self.data.get("cycle_kwh"),
+                "cycle_start": self.data.get("cycle_start"),
+            },
+        )
+        self.hass.async_create_task(
+            self.store.async_set_extra("budget_notified", cycle_key)
+        )
+
+    @callback
+    def _fire_cutoff_event(self) -> None:
+        """At noon on a cut-off day fire an event with the cycle summary."""
+        if not self.data:
+            return
+        today = dt_util.now().date()
+        cutoff = self.data.get("next_cutoff")
+        if cutoff != today:
+            return
+        forecast = self.data.get("forecast") or {}
+        self.hass.bus.async_fire(
+            EVENT_CUTOFF_DAY,
+            {
+                "cutoff_date": today.isoformat(),
+                "cycle_kwh": self.data.get("cycle_kwh"),
+                "bill_estimate": (self.data.get("cycle_bill_estimate") or {}).get("total"),
+                "forecast_bill": (forecast.get("bill") or {}).get("total"),
+            },
+        )
 
     async def async_add_bill(
         self,

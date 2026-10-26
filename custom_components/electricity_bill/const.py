@@ -10,6 +10,48 @@ CONF_FALLBACK_RATE = "fallback_rate"
 CONF_AI_TASK_ENTITY = "ai_task_entity"
 CONF_MAIN_METER = "main_meter"
 CONF_RESET_BUTTON = "reset_button"
+CONF_FT_RATE = "ft_rate"
+CONF_SERVICE_CHARGE = "service_charge"
+CONF_VAT_PERCENT = "vat_percent"
+CONF_CUTOFF_DAY_30 = "cutoff_day_30"
+CONF_CUTOFF_DAY_31 = "cutoff_day_31"
+CONF_CUTOFF_DAY_FEB = "cutoff_day_feb"
+CONF_BUDGET_THRESHOLD = "budget_threshold"
+CONF_TARIFF_PROFILE = "tariff_profile"
+CONF_TARIFF_TIERS = "tariff_tiers"
+
+# Tariff profiles. "none" (default) keeps the generic behaviour: estimates use the
+# effective rate of the last bill. "thailand_residential" uses the Thai PEA/MEA
+# residential tiers below. "custom" uses CONF_TARIFF_TIERS.
+PROFILE_NONE = "none"
+PROFILE_THAILAND = "thailand_residential"
+PROFILE_CUSTOM = "custom"
+TARIFF_PROFILES = [PROFILE_NONE, PROFILE_THAILAND, PROFILE_CUSTOM]
+DEFAULT_TARIFF_PROFILE = PROFILE_NONE
+
+# Thai residential tariff (PEA/MEA) in force from the September 2026 bill.
+# Each tier is (cumulative upper limit in kWh or None for "and above", baht per kWh).
+TARIFF_TIERS_OVER_150 = ((200, 3.0), (400, 4.1584), (None, 4.3583))
+TARIFF_TIERS_UP_TO_150 = (
+    (15, 2.3488),
+    (25, 2.9882),
+    (200, 3.0),
+    (400, 4.1584),
+    (None, 4.3583),
+)
+TARIFF_SMALL_USER_LIMIT_KWH = 150
+
+# Defaults of the Thailand profile only (other profiles start at 0 / not set)
+THAILAND_FT_RATE = 0.1623
+THAILAND_SERVICE_CHARGE = 24.62
+THAILAND_VAT_PERCENT = 7.0
+THAILAND_CUTOFF_DAY_30 = 24
+THAILAND_CUTOFF_DAY_31 = 25
+THAILAND_CUTOFF_DAY_FEB = 24
+
+# Events fired on the HA bus (build automations / notifications on them)
+EVENT_CUTOFF_DAY = "electricity_bill_cutoff_day"
+EVENT_BUDGET_EXCEEDED = "electricity_bill_budget_exceeded"
 
 # Defaults
 DEFAULT_NAME = "Electricity Bill"

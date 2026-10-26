@@ -118,6 +118,27 @@ SENSOR_DESCRIPTIONS: tuple[ElectricityBillSensorEntityDescription, ...] = (
         },
     ),
     ElectricityBillSensorEntityDescription(
+        key="today_kwh",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda data: data.get("today_kwh"),
+    ),
+    ElectricityBillSensorEntityDescription(
+        key="yesterday_kwh",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda data: data.get("yesterday_kwh"),
+    ),
+    ElectricityBillSensorEntityDescription(
+        key="daily_average_kwh",
+        device_class=SensorDeviceClass.ENERGY,
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        suggested_display_precision=2,
+        value_fn=lambda data: data.get("daily_average_kwh"),
+    ),
+    ElectricityBillSensorEntityDescription(
         key="cycle_bill_estimate",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_THB,

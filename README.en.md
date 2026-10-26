@@ -23,6 +23,7 @@ A Home Assistant custom integration that records your monthly electricity bill (
 - **"ค่าไฟ" panel (v0.7)**: bill chart (amount and kWh for the last 12 bills), edit a saved bill (Edit button in the history rows; the period end date cannot be changed), CSV export of the history, usable on a phone.
 - **Thai and English UI** . The "ค่าไฟ" panel follows the Home Assistant language (Thai / English; other languages show English) and the currency set in HA. Add a language in the `I18N` object of `frontend/panel.js`.
 - **Energy by device and daily usage (v0.9)**: a card splitting this cycle's energy between the sub-meters and the unmetered rest with an estimated cost, and a daily kWh bar chart for the cycle (from HA long-term statistics).
+- **Today / yesterday / daily average (v0.10)**: three new sensors, an optional alert when today's usage is a set multiple of the cycle average (event `electricity_bill_high_usage`), and a comparison with the previous cycle in the daily chart (once enough history exists).
 - **New look (v0.8)**: summary card with a billing-cycle progress ring, gradient bar chart with a smooth kWh curve and animations, colour-coded tiles.
 
 ---
@@ -69,6 +70,9 @@ All sensors belong to the **Electricity Bill** device:
 | `sensor.electricity_bill_cycle_bill_estimate` | Cycle Bill Estimate | HA currency | Estimated full bill of the current cycle for the chosen tariff profile (no profile = units × effective rate) | `energy_charge`, `ft_charge`, `service_charge`, `subtotal`, `vat`, `total` |
 | `sensor.electricity_bill_forecast_bill` | Forecast Bill | HA currency | Bill forecast to the next billing day from this cycle's daily average (needs the billing day set) | `forecast_kwh`, `kwh_per_day`, `cycle_days`, `cutoff_date` |
 | `sensor.electricity_bill_next_billing_day` | Next Billing Day | date | Next billing (cut-off) day (needs the billing day set) | - |
+| `sensor.electricity_bill_today_energy` | Today Energy | kWh | Energy used since 00:00 today (main meter, or all sources) | - |
+| `sensor.electricity_bill_yesterday_energy` | Yesterday Energy | kWh | Energy used yesterday (empty until a day has rolled over once) | - |
+| `sensor.electricity_bill_daily_average_energy` | Daily Average Energy | kWh | Average energy per day of the current cycle | - |
 | `sensor.electricity_bill_effective_rate` | Effective Rate | THB/kWh | Real rate per unit from the latest bill | `source` ("bill"/"fallback"), `based_on_period_end` |
 | `sensor.electricity_bill_cycle_cost_estimate` | Cycle Cost Estimate | THB | Estimated cost of the current cycle (`cycle energy * rate`) | `rate_used` |
 | `sensor.electricity_bill_last_bill_amount` | Last Bill Amount | THB | Total amount of the latest bill | `period_start`, `period_end`, `kwh`, `rate`, `note` |
@@ -136,6 +140,7 @@ On the second page of **Configure** ("Tariff, billing day and budget") choose a 
 - **Billing day**: set the day of month for 30-day months / 31-day months / February (use the same day in all three for a fixed day). Once set you get **Next Billing Day** and **Forecast Bill** sensors. Leave empty to disable them.
 - **Currency**: monetary sensors use the currency configured in Home Assistant (Settings > System > General).
 - **Budget**: set `budget_threshold` and the event `electricity_bill_budget_exceeded` is fired once per cycle when the estimated bill reaches it (data: `threshold`, `bill_estimate`, `cycle_kwh`, `cycle_start`).
+- **High daily usage**: set `high_usage_factor` (e.g. 2 = twice the cycle's daily average) and the event `electricity_bill_high_usage` is fired once per day when today's energy reaches it and is above 2 kWh (data: `date`, `today_kwh`, `daily_average_kwh`, `factor`).
 - **Billing-day event**: at 12:00 on the billing day the event `electricity_bill_cutoff_day` is fired (data: `cutoff_date`, `cycle_kwh`, `bill_estimate`, `forecast_bill`).
 
 Example automation using the event (replace `notify.mobile_app_xxx` with your notifier):

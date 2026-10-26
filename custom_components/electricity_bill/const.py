@@ -18,6 +18,7 @@ CONF_CUTOFF_DAY_31 = "cutoff_day_31"
 CONF_CUTOFF_DAY_FEB = "cutoff_day_feb"
 CONF_BUDGET_THRESHOLD = "budget_threshold"
 CONF_TARIFF_PROFILE = "tariff_profile"
+CONF_HIGH_USAGE_FACTOR = "high_usage_factor"
 CONF_TARIFF_TIERS = "tariff_tiers"
 
 # Tariff profiles. "none" (default) keeps the generic behaviour: estimates use the
@@ -52,6 +53,8 @@ THAILAND_CUTOFF_DAY_FEB = 24
 # Events fired on the HA bus (build automations / notifications on them)
 EVENT_CUTOFF_DAY = "electricity_bill_cutoff_day"
 EVENT_BUDGET_EXCEEDED = "electricity_bill_budget_exceeded"
+EVENT_HIGH_USAGE = "electricity_bill_high_usage"
+HIGH_USAGE_MIN_KWH = 2.0
 
 # Defaults
 DEFAULT_NAME = "Electricity Bill"

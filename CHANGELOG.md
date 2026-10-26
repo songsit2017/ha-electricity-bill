@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0
+- New sensors `Today Energy`, `Yesterday Energy`, `Daily Average Energy` (day start is tracked in the integration's own storage and survives restarts).
+- Optional high-usage alert: option `high_usage_factor`, event `electricity_bill_high_usage` once per day.
+- Panel: today tile (with yesterday) and a comparison with the previous cycle in the daily usage card when the recorder has the history.
+- Python changes: restart Home Assistant once after updating.
+
 ## 0.9.0
 - Panel: "Energy by device" card (stacked bar + list with kWh, estimated cost and share per sub-meter, plus the unmetered rest) and "Daily usage" card (kWh per day for the current cycle from the recorder's daily statistics, with the average line). Panel-only change: no Home Assistant restart needed after the update (from 0.8.2 on).
 

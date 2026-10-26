@@ -991,3 +991,45 @@ def test_panel_asset_etag_changes_with_file():
     assert calc.panel_asset_etag(1, 10) != calc.panel_asset_etag(2, 10)
     assert calc.panel_asset_etag(1, 10) != calc.panel_asset_etag(1, 11)
     assert calc.panel_asset_etag(255, 16) == '"ff-10"'
+
+
+# ---------------------------------------------------------------- daily tracking (Phase 7)
+def test_daily_average_uses_at_least_one_day():
+    assert calc.calculate_daily_average(10, 0) == 10.0
+    assert calc.calculate_daily_average(10, 4) == 2.5
+    assert calc.calculate_daily_average(-3, 2) == 0.0
+
+
+def test_is_high_usage():
+    assert calc.is_high_usage(9, 4, 2.0) is True      # 9 >= 8
+    assert calc.is_high_usage(7.9, 4, 2.0) is False
+    assert calc.is_high_usage(1.5, 0.5, 2.0) is False  # below the 2 kWh floor
+    assert calc.is_high_usage(10, 4, None) is False    # disabled
+    assert calc.is_high_usage(10, 0, 2.0) is False     # no average yet
+
+
+def test_roll_day_same_day_adds_new_sources_only():
+    stored = {"date": "2026-10-27", "snapshot": {"a": 10.0}}
+    rec, yest, changed = calc.roll_day(stored, "2026-10-27", "2026-10-26", {"a": 12.0, "b": 5.0})
+    assert rec["snapshot"] == {"a": 10.0, "b": 5.0}
+    assert yest is None
+    assert changed is True
+    rec2, _, changed2 = calc.roll_day(rec, "2026-10-27", "2026-10-26", {"a": 12.0, "b": 6.0})
+    assert changed2 is False and rec2["snapshot"] == rec["snapshot"]
+
+
+def test_roll_day_new_day_returns_yesterday_total():
+    stored = {"date": "2026-10-26", "snapshot": {"main": 100.0, "ac": 50.0}}
+    rec, yest, changed = calc.roll_day(
+        stored, "2026-10-27", "2026-10-26", {"main": 108.5, "ac": 54.0}, only=["main"]
+    )
+    assert changed is True
+    assert yest == 8.5
+    assert rec == {"date": "2026-10-27", "snapshot": {"main": 108.5, "ac": 54.0}}
+
+
+def test_roll_day_gap_or_first_run_has_no_yesterday():
+    rec, yest, changed = calc.roll_day({"date": "2026-10-20", "snapshot": {"a": 1.0}}, "2026-10-27", "2026-10-26", {"a": 9.0})
+    assert yest is None and changed is True and rec["snapshot"] == {"a": 9.0}
+    rec, yest, changed = calc.roll_day(None, "2026-10-27", "2026-10-26", {"a": 9.0})
+    assert yest is None and changed is True

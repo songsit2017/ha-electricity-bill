@@ -23,6 +23,7 @@ Home Assistant custom integration สำหรับบันทึกบิล�
 - **หน้าจอ "ค่าไฟ" (v0.7)**: กราฟยอดบิลและหน่วยไฟรายรอบบิล (12 รอบล่าสุด), แก้ไขบิลที่บันทึกแล้ว (ปุ่ม "แก้ไข" ในรายการประวัติ วันสิ้นสุดรอบบิลเปลี่ยนไม่ได้), ส่งออกประวัติเป็นไฟล์ CSV และใช้งานบนมือถือได้
 - **รองรับ 2 ภาษา**: รองรับภาษาไทย (TH) และภาษาอังกฤษ (EN) เต็มรูปแบบ หน้าจอ "ค่าไฟ" เลือกภาษาตามภาษาของ Home Assistant (ไทย / อังกฤษ ภาษาอื่นแสดงเป็นอังกฤษ) และใช้สกุลเงินที่ตั้งใน HA เพิ่มภาษาใหม่ได้ที่ตัวแปร `I18N` ใน `frontend/panel.js`
 - **ใช้ไฟรายเครื่องและรายวัน (v0.9)**: การ์ดแบ่งสัดส่วนหน่วยไฟของแต่ละมิเตอร์ย่อยและไฟที่ไม่มีมิเตอร์ย่อยในรอบนี้ พร้อมค่าไฟโดยประมาณ และกราฟแท่งหน่วยไฟรายวันของรอบนี้ (จากสถิติระยะยาวของ HA)
+- **ใช้ไฟวันนี้ เมื่อวาน และเฉลี่ยรายวัน (v0.10)**: เซ็นเซอร์ใหม่ 3 ตัว พร้อมแจ้งเตือนเมื่อวันนี้ใช้ไฟสูงกว่าค่าเฉลี่ยของรอบตามจำนวนเท่าที่ตั้ง (อีเวนต์ `electricity_bill_high_usage`) และเทียบกับรอบก่อนในกราฟรายวัน (เมื่อมีสถิติย้อนหลังพอ)
 - **ดีไซน์ใหม่ (v0.8)**: การ์ดสรุปพร้อมวงแหวนความคืบหน้าของรอบบิล กราฟแท่งไล่สีพร้อมเส้นโค้งหน่วยไฟและแอนิเมชัน ไอคอนสีแยกตามประเภทข้อมูล
 
 ---
@@ -70,6 +71,9 @@ Home Assistant custom integration สำหรับบันทึกบิล�
 | `sensor.electricity_bill_cycle_bill_estimate` | Cycle Bill Estimate | บาท/สกุลเงินของ HA | ประมาณการบิลเต็มของรอบนี้ ตามโปรไฟล์อัตราค่าไฟ (ไม่ใช้โปรไฟล์ = หน่วย × อัตราเฉลี่ย) | `energy_charge`, `ft_charge`, `service_charge`, `subtotal`, `vat`, `total` |
 | `sensor.electricity_bill_forecast_bill` | Forecast Bill | บาท/สกุลเงินของ HA | คาดการณ์บิลถึงวันตัดรอบถัดไป จากค่าเฉลี่ยต่อวันของรอบนี้ (ต้องตั้งวันตัดรอบ) | `forecast_kwh`, `kwh_per_day`, `cycle_days`, `cutoff_date` |
 | `sensor.electricity_bill_next_billing_day` | Next Billing Day | วันที่ | วันตัดรอบถัดไป (ต้องตั้งวันตัดรอบ) | - |
+| `sensor.electricity_bill_today_energy` | Today Energy | kWh | หน่วยไฟที่ใช้ตั้งแต่ 00:00 ของวันนี้ (จากมิเตอร์หลัก หรือรวมทุก Source) | - |
+| `sensor.electricity_bill_yesterday_energy` | Yesterday Energy | kWh | หน่วยไฟเมื่อวาน (ว่างจนกว่าจะข้ามวันหนึ่งครั้ง) | - |
+| `sensor.electricity_bill_daily_average_energy` | Daily Average Energy | kWh | หน่วยไฟเฉลี่ยต่อวันของรอบนี้ | - |
 | `sensor.electricity_bill_effective_rate` | Effective Rate | THB/kWh | อัตราค่าไฟจริงต่อหน่วยจากบิลล่าสุด | `source` ("bill"/"fallback"), `based_on_period_end` |
 | `sensor.electricity_bill_cycle_cost_estimate` | Cycle Cost Estimate | THB | ประมาณการค่าไฟรอบปัจจุบัน (`cycle_kwh * rate`) | `rate_used` |
 | `sensor.electricity_bill_last_bill_amount` | Last Bill Amount | THB | ยอดเงินรวมของบิลล่าสุด | `period_start`, `period_end`, `kwh`, `rate`, `note` |
@@ -139,6 +143,7 @@ data:
 - **วันตัดรอบ**: ตั้งวันของเดือน 30 วัน / 31 วัน / กุมภาพันธ์ (ใส่วันเดียวกันทั้งสามช่องถ้าตัดรอบวันเดียวทุกเดือน) เมื่อตั้งแล้วจะได้เซ็นเซอร์ **Next Billing Day** และ **Forecast Bill** เว้นว่างเพื่อปิด
 - **สกุลเงิน**: เซ็นเซอร์ที่เป็นเงินใช้สกุลเงินที่ตั้งใน Home Assistant (Settings > System > General)
 - **งบประมาณ**: ตั้ง `budget_threshold` แล้วระบบส่งอีเวนต์ `electricity_bill_budget_exceeded` หนึ่งครั้งต่อรอบเมื่อบิลโดยประมาณถึงจำนวนนั้น (ข้อมูล: `threshold`, `bill_estimate`, `cycle_kwh`, `cycle_start`)
+- **ใช้ไฟรายวันสูง**: ตั้ง `high_usage_factor` (เช่น 2 = สองเท่าของค่าเฉลี่ยรายวันของรอบ) แล้วระบบส่งอีเวนต์ `electricity_bill_high_usage` หนึ่งครั้งต่อวัน เมื่อหน่วยไฟวันนี้ถึงเกณฑ์และมากกว่า 2 kWh (ข้อมูล: `date`, `today_kwh`, `daily_average_kwh`, `factor`)
 - **วันตัดรอบ**: เวลา 12:00 ของวันตัดรอบ ระบบส่งอีเวนต์ `electricity_bill_cutoff_day` (ข้อมูล: `cutoff_date`, `cycle_kwh`, `bill_estimate`, `forecast_bill`)
 
 ตัวอย่างออโตเมชันแจ้งเตือนจากอีเวนต์ (เปลี่ยน `notify.mobile_app_xxx` เป็นบริการแจ้งเตือนของคุณ):

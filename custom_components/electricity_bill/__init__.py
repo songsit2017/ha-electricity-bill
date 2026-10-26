@@ -1,7 +1,7 @@
 """Electricity Bill custom integration for Home Assistant."""
 from __future__ import annotations
 from collections.abc import Callable
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 import logging
 import math
 from typing import Any
@@ -31,6 +31,9 @@ from .calc import (
     calculate_cycle_cost,
     calculate_cycle_kwh,
     calculate_cycle_unmetered_kwh,
+    calculate_daily_average,
+    is_high_usage,
+    roll_day,
     estimate_bill,
     forecast_cycle_kwh,
     next_cutoff_date,
@@ -61,6 +64,7 @@ from .const import (
     CONF_CUTOFF_DAY_FEB,
     CONF_FALLBACK_RATE,
     CONF_FT_RATE,
+    CONF_HIGH_USAGE_FACTOR,
     CONF_MAIN_METER,
     CONF_TARIFF_PROFILE,
     CONF_TARIFF_TIERS,
@@ -81,6 +85,8 @@ from .const import (
     THAILAND_VAT_PERCENT,
     EVENT_BUDGET_EXCEEDED,
     EVENT_CUTOFF_DAY,
+    EVENT_HIGH_USAGE,
+    HIGH_USAGE_MIN_KWH,
     TARIFF_SMALL_USER_LIMIT_KWH,
     TARIFF_TIERS_OVER_150,
     TARIFF_TIERS_UP_TO_150,
@@ -155,6 +161,9 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsub_reset_watch: Callable[[], None] | None = None
         self._unsub_time: list[Callable[[], None]] = []
         self._budget_notified: str | None = None
+        self._day: dict[str, Any] | None = None
+        self._yesterday_kwh: float | None = None
+        self._high_usage_notified: str | None = None
 
     def _opt(self, key: str, default: Any) -> Any:
         value = self.entry.options.get(key, self.entry.data.get(key))
@@ -189,6 +198,15 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if d30 is None or d31 is None:
             return None
         return int(d30), int(d31), int(dfeb if dfeb is not None else d30)
+
+    @property
+    def high_usage_factor(self) -> float | None:
+        value = self._opt(CONF_HIGH_USAGE_FACTOR, None)
+        try:
+            value = float(value) if value not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+        return value if value and value > 0 else None
 
     @property
     def budget_threshold(self) -> float | None:
@@ -300,6 +318,9 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.bills = stored.get("bills", [])
         self.cycle_snapshot = stored.get("cycle_snapshot", {})
         self._budget_notified = stored.get("budget_notified")
+        self._day = stored.get("day")
+        self._yesterday_kwh = stored.get("yesterday_kwh")
+        self._high_usage_notified = stored.get("high_usage_notified")
 
         # If baseline cycle snapshot is empty, initialize it from current states
         if not self.cycle_snapshot and self.sources:
@@ -467,6 +488,26 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cycle_kwh, per_source = calculate_cycle_kwh(
             current_snapshot, self.cycle_snapshot, only=self.total_sources
         )
+        today_date = dt_util.now().date()
+        record, rolled_yesterday, changed = roll_day(
+            self._day,
+            today_date.isoformat(),
+            (today_date - timedelta(days=1)).isoformat(),
+            current_snapshot,
+            only=self.total_sources,
+        )
+        if changed:
+            new_day = self._day is None or self._day.get("date") != record["date"]
+            self._day = record
+            if new_day:
+                self._yesterday_kwh = (
+                    round(rolled_yesterday, 3) if rolled_yesterday is not None else None
+                )
+            self.hass.async_create_task(self._async_save_day())
+        today_kwh, _ = calculate_cycle_kwh(
+            current_snapshot, self._day.get("snapshot", {}), only=self.total_sources
+        )
+
         main_meter = self.main_meter
         if main_meter:
             submetered_kwh, cycle_unmetered_kwh = calculate_cycle_unmetered_kwh(
@@ -526,6 +567,9 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "cycle_unmetered_kwh": cycle_unmetered_kwh,
             "cycle_start": cycle_start,
             "days_in_cycle": days_in_cycle,
+            "today_kwh": round(today_kwh, 3),
+            "yesterday_kwh": self._yesterday_kwh,
+            "daily_average_kwh": calculate_daily_average(cycle_kwh, days_in_cycle),
             "effective_rate": effective_rate,
             "rate_source": rate_source,
             "based_on_period_end": based_on_period_end,
@@ -552,6 +596,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "bill_history": format_bill_history(self.bills, max_items=24),
         }
         self._check_budget()
+        self._check_high_usage()
 
     @callback
     def _check_budget(self) -> None:
@@ -576,6 +621,36 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.async_create_task(
             self.store.async_set_extra("budget_notified", cycle_key)
         )
+
+    async def _async_save_day(self) -> None:
+        """Persist the day-start record and yesterday's total (extra keys of the store)."""
+        await self.store.async_set_extra("day", self._day)
+        await self.store.async_set_extra("yesterday_kwh", self._yesterday_kwh)
+
+    @callback
+    def _check_high_usage(self) -> None:
+        """Fire a one-off event per day when today's energy is far above the cycle average."""
+        factor = self.high_usage_factor
+        if factor is None or not self.data or not self._day:
+            return
+        today_kwh = self.data.get("today_kwh") or 0.0
+        average = self.data.get("daily_average_kwh") or 0.0
+        day = self._day.get("date")
+        if self._high_usage_notified == day or not is_high_usage(
+            today_kwh, average, factor, HIGH_USAGE_MIN_KWH
+        ):
+            return
+        self._high_usage_notified = day
+        self.hass.bus.async_fire(
+            EVENT_HIGH_USAGE,
+            {
+                "date": day,
+                "today_kwh": today_kwh,
+                "daily_average_kwh": average,
+                "factor": factor,
+            },
+        )
+        self.hass.async_create_task(self.store.async_set_extra("high_usage_notified", day))
 
     @callback
     def _fire_cutoff_event(self) -> None:

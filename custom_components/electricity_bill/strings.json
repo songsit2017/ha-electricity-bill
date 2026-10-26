@@ -48,13 +48,15 @@
           "cutoff_day_30": "Billing day in 30-day months",
           "cutoff_day_31": "Billing day in 31-day months",
           "cutoff_day_feb": "Billing day in February",
-          "budget_threshold": "Budget alert threshold (cost per cycle)"
+          "budget_threshold": "Budget alert threshold (cost per cycle)",
+          "high_usage_factor": "High daily usage alert (x the cycle average)"
         },
         "data_description": {
           "tariff_profile": "none = estimate with the last bill's effective rate. thailand_residential = Thai PEA/MEA residential tiers (from the Sep 2026 bill). custom = your own tiers.",
           "tariff_tiers": "Format \"200:3.0, 400:4.1584, 4.3583\": cumulative upper limit in kWh and rate per kWh; the last tier is open-ended.",
           "cutoff_day_30": "Set the same day in all three fields if your billing day is fixed. Leave empty to disable the next-billing-day and forecast sensors.",
-          "budget_threshold": "Fires the event electricity_bill_budget_exceeded once per cycle when the estimated bill reaches this amount."
+          "budget_threshold": "Fires the event electricity_bill_budget_exceeded once per cycle when the estimated bill reaches this amount.",
+          "high_usage_factor": "Fires the event electricity_bill_high_usage once per day when today's energy reaches this multiple of the cycle's daily average (and at least 2 kWh). Leave empty to disable."
         }
       }
     },
@@ -97,6 +99,15 @@
       },
       "next_cutoff_date": {
         "name": "Next Billing Day"
+      },
+      "today_kwh": {
+        "name": "Today Energy"
+      },
+      "yesterday_kwh": {
+        "name": "Yesterday Energy"
+      },
+      "daily_average_kwh": {
+        "name": "Daily Average Energy"
       }
     }
   },

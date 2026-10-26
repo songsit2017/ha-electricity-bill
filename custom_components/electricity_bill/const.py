@@ -55,6 +55,7 @@ EVENT_CUTOFF_DAY = "electricity_bill_cutoff_day"
 EVENT_BUDGET_EXCEEDED = "electricity_bill_budget_exceeded"
 EVENT_HIGH_USAGE = "electricity_bill_high_usage"
 HIGH_USAGE_MIN_KWH = 2.0
+DAY_RECORD_VERSION = 2
 
 # Defaults
 DEFAULT_NAME = "Electricity Bill"

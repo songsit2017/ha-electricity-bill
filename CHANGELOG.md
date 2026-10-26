@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.1
+- Fix: after a Home Assistant restart `Today Energy` could show the whole cycle's energy, because the day-start record was taken while the main meter was still unavailable. The day is now only tracked while the meter has a value, and the old day records are dropped once (today's figure starts again from the current meter value).
+- Python change: restart Home Assistant once after updating.
+
 ## 0.11.0
 - Languages: Vietnamese, Malay, Indonesian and Russian added to the panel and to the configuration screens (with Thai and English). Translations were machine-written; native review of the new languages is welcome (panel texts in the `I18N` object of `frontend/panel.js`, config texts in `translations/*.json`).
 

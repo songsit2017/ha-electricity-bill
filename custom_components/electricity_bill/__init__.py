@@ -87,6 +87,7 @@ from .const import (
     EVENT_CUTOFF_DAY,
     EVENT_HIGH_USAGE,
     HIGH_USAGE_MIN_KWH,
+    DAY_RECORD_VERSION,
     TARIFF_SMALL_USER_LIMIT_KWH,
     TARIFF_TIERS_OVER_150,
     TARIFF_TIERS_UP_TO_150,
@@ -318,7 +319,8 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.bills = stored.get("bills", [])
         self.cycle_snapshot = stored.get("cycle_snapshot", {})
         self._budget_notified = stored.get("budget_notified")
-        self._day = stored.get("day")
+        stored_day = stored.get("day")
+        self._day = stored_day if stored_day and stored_day.get("v") == DAY_RECORD_VERSION else None
         self._yesterday_kwh = stored.get("yesterday_kwh")
         self._high_usage_notified = stored.get("high_usage_notified")
 
@@ -488,25 +490,28 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cycle_kwh, per_source = calculate_cycle_kwh(
             current_snapshot, self.cycle_snapshot, only=self.total_sources
         )
-        today_date = dt_util.now().date()
-        record, rolled_yesterday, changed = roll_day(
-            self._day,
-            today_date.isoformat(),
-            (today_date - timedelta(days=1)).isoformat(),
-            current_snapshot,
-            only=self.total_sources,
-        )
-        if changed:
-            new_day = self._day is None or self._day.get("date") != record["date"]
-            self._day = record
-            if new_day:
-                self._yesterday_kwh = (
-                    round(rolled_yesterday, 3) if rolled_yesterday is not None else None
-                )
-            self.hass.async_create_task(self._async_save_day())
-        today_kwh, _ = calculate_cycle_kwh(
-            current_snapshot, self._day.get("snapshot", {}), only=self.total_sources
-        )
+        today_kwh: float | None = None
+        if self._total_sources_ready():
+            today_date = dt_util.now().date()
+            record, rolled_yesterday, changed = roll_day(
+                self._day,
+                today_date.isoformat(),
+                (today_date - timedelta(days=1)).isoformat(),
+                current_snapshot,
+                only=self.total_sources,
+            )
+            if changed:
+                new_day = self._day is None or self._day.get("date") != record["date"]
+                record["v"] = DAY_RECORD_VERSION
+                self._day = record
+                if new_day:
+                    self._yesterday_kwh = (
+                        round(rolled_yesterday, 3) if rolled_yesterday is not None else None
+                    )
+                self.hass.async_create_task(self._async_save_day())
+            today_kwh, _ = calculate_cycle_kwh(
+                current_snapshot, self._day.get("snapshot", {}), only=self.total_sources
+            )
 
         main_meter = self.main_meter
         if main_meter:
@@ -567,7 +572,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "cycle_unmetered_kwh": cycle_unmetered_kwh,
             "cycle_start": cycle_start,
             "days_in_cycle": days_in_cycle,
-            "today_kwh": round(today_kwh, 3),
+            "today_kwh": round(today_kwh, 3) if today_kwh is not None else None,
             "yesterday_kwh": self._yesterday_kwh,
             "daily_average_kwh": calculate_daily_average(cycle_kwh, days_in_cycle),
             "effective_rate": effective_rate,
@@ -622,6 +627,18 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.store.async_set_extra("budget_notified", cycle_key)
         )
 
+    def _total_sources_ready(self) -> bool:
+        """True when every source forming the total has a numeric state."""
+        for source in self.total_sources:
+            state = self.hass.states.get(source)
+            if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+                return False
+            try:
+                float(state.state)
+            except (TypeError, ValueError):
+                return False
+        return bool(self.total_sources)
+
     async def _async_save_day(self) -> None:
         """Persist the day-start record and yesterday's total (extra keys of the store)."""
         await self.store.async_set_extra("day", self._day)
@@ -633,7 +650,9 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         factor = self.high_usage_factor
         if factor is None or not self.data or not self._day:
             return
-        today_kwh = self.data.get("today_kwh") or 0.0
+        today_kwh = self.data.get("today_kwh")
+        if today_kwh is None:
+            return
         average = self.data.get("daily_average_kwh") or 0.0
         day = self._day.get("date")
         if self._high_usage_notified == day or not is_high_usage(

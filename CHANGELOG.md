@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.0
+- Panel i18n: Thai and English follow the Home Assistant language; numbers, dates and the currency symbol follow the HA locale and currency. New languages are added in the `I18N` object.
+- Panel redesign: hero card with billing-cycle progress ring, gradient bar chart with grid, smooth kWh curve and entrance animations, colour-coded tiles, softer cards, reduced-motion support.
+- Fix: grid children can shrink on narrow screens (chart no longer overflows).
+
 ## 0.7.0
 - Panel: bill trend chart (amount bars + kWh line, last 12 bills), edit a saved bill in place (period end fixed; saved with replace), CSV export of the bill history (UTF-8 with BOM for Excel).
 - Panel texts remain Thai only.

@@ -493,6 +493,59 @@ const STYLE = `
   .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .card-head h2 { margin: 0; }
   .input input:disabled { opacity: .6; }
+  /* ---- design refresh ---- */
+  .page, .grid, .tiles { min-width: 0; }
+  .page > *, .grid > *, .tiles > * { min-width: 0; }
+  .page { grid-template-columns: minmax(0, 1fr); }
+  .chart-card svg { max-width: 100%; }
+  :host { --eb-ok: var(--success-color, #43a047); --eb-warn: var(--warning-color, #ffa000); --eb-violet: #7c4dff; font-variant-numeric: tabular-nums; }
+  .page { gap: 18px; padding-top: 20px; }
+  .hero {
+    display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: center;
+    padding: 26px 28px;
+    background:
+      radial-gradient(120% 140% at 100% 0%, rgba(255,255,255,.22), rgba(255,255,255,0) 55%),
+      linear-gradient(135deg, var(--eb-accent) 0%, var(--eb-accent-2) 100%);
+    box-shadow: 0 18px 40px -12px color-mix(in srgb, var(--eb-accent) 55%, transparent), inset 0 1px 0 rgba(255,255,255,.25);
+  }
+  .hero-main { min-width: 0; }
+  .hero-label { text-transform: uppercase; letter-spacing: .08em; font-size: 12px; font-weight: 600; opacity: .85; }
+  .hero-value { font-size: clamp(44px, 9vw, 68px); font-weight: 800; letter-spacing: -1.5px; text-shadow: 0 2px 14px rgba(0,0,0,.18); }
+  .hero-ring { position: relative; width: 112px; height: 112px; display: none; }
+  .hero-ring.show { display: block; }
+  .hero-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+  .hero-ring .trk { fill: none; stroke: rgba(255,255,255,.25); stroke-width: 9; }
+  .hero-ring .prg { fill: none; stroke: #fff; stroke-width: 9; stroke-linecap: round; transition: stroke-dashoffset .9s cubic-bezier(.2,.8,.2,1); }
+  .hero-ring .mid { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; line-height: 1.1; }
+  .hero-ring .mid b { font-size: 26px; font-weight: 750; }
+  .hero-ring .mid span { font-size: 11px; opacity: .85; margin-top: 2px; }
+  .chip { background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.28); }
+  .tile { transition: transform .15s, box-shadow .2s, border-color .2s; }
+  .tile:hover { transform: translateY(-2px); box-shadow: 0 10px 24px -14px rgba(0,0,0,.45); border-color: color-mix(in srgb, var(--eb-accent) 45%, var(--eb-line)); }
+  .tile-ico { width: 46px; height: 46px; border-radius: 14px; }
+  .tile:nth-child(4n+2) .tile-ico { background: color-mix(in srgb, var(--eb-ok) 16%, transparent); color: var(--eb-ok); }
+  .tile:nth-child(4n+3) .tile-ico { background: color-mix(in srgb, var(--eb-warn) 18%, transparent); color: var(--eb-warn); }
+  .tile:nth-child(4n+4) .tile-ico { background: color-mix(in srgb, var(--eb-violet) 16%, transparent); color: var(--eb-violet); }
+  .tile-value { font-size: 22px; font-weight: 700; letter-spacing: -.3px; }
+  .card { border-radius: 22px; padding: 22px; transition: box-shadow .2s, border-color .2s; }
+  .card:hover { border-color: color-mix(in srgb, var(--eb-accent) 30%, var(--eb-line)); }
+  .card h2 { font-size: 17px; letter-spacing: -.2px; }
+  .card h2 ha-icon { color: var(--eb-accent); background: color-mix(in srgb, var(--eb-accent) 13%, transparent); border-radius: 10px; padding: 5px; --mdc-icon-size: 20px; }
+  .chart-card .grid-line { stroke: var(--eb-line); stroke-dasharray: 3 5; stroke-width: 1; }
+  .chart-card .bar-rect { fill: url(#ebBar); opacity: 1; transform-box: fill-box; transform-origin: 50% 100%; animation: ebGrow .7s cubic-bezier(.2,.8,.2,1) both; }
+  .chart-card .bar-rect:not(.latest) { opacity: .55; }
+  .chart-card .kwh-line { stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1200; animation: ebDraw 1.1s ease-out .15s both; }
+  .chart-card .kwh-dot { stroke: var(--eb-card); stroke-width: 2; }
+  .chart-card .val { font-weight: 650; font-size: 11.5px; }
+  @keyframes ebGrow { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+  @keyframes ebDraw { from { stroke-dashoffset: 1200; } to { stroke-dashoffset: 0; } }
+  .row-item { border-radius: 14px; transition: background .15s; }
+  .row-main:hover { background: var(--eb-soft); }
+  .bar { height: 6px; border-radius: 999px; }
+  .bar i { border-radius: 999px; background: linear-gradient(90deg, var(--eb-accent), var(--eb-accent-2)); }
+  .btn { border-radius: 14px; }
+  @media (max-width: 520px) { .hero { grid-template-columns: 1fr; padding: 22px; } .hero-ring { width: 92px; height: 92px; justify-self: start; } .hero-ring .mid b { font-size: 21px; } }
+  @media (prefers-reduced-motion: reduce) { .chart-card .bar-rect, .chart-card .kwh-line { animation: none; } .hero-ring .prg { transition: none; } }
   @media (max-width: 520px) {
     .page { padding: 12px 12px 40px; }
     .hero { padding: 20px; }
@@ -571,13 +624,19 @@ class ElectricityBillPanel extends HTMLElement {
     this._heroValue = el("div", { class: "hero-value" });
     this._heroSub = el("div", { class: "hero-sub" });
     this._heroChips = el("div", { class: "chips" });
+    this._heroRing = el("div", { class: "hero-ring" });
     const hero = el(
       "div",
       { class: "hero" },
-      el("div", { class: "hero-label" }, icon("mdi:flash"), T("ค่าไฟรอบนี้ (ประมาณการ)")),
-      this._heroValue,
-      this._heroSub,
-      this._heroChips
+      el(
+        "div",
+        { class: "hero-main" },
+        el("div", { class: "hero-label" }, icon("mdi:flash"), T("ค่าไฟรอบนี้ (ประมาณการ)")),
+        this._heroValue,
+        this._heroSub,
+        this._heroChips
+      ),
+      this._heroRing
     );
 
     // tiles
@@ -841,6 +900,29 @@ class ElectricityBillPanel extends HTMLElement {
     this._refresh();
   }
 
+  _renderRing(elapsed, total) {
+    this._heroRing.replaceChildren();
+    if (!(total > 0) || !(elapsed >= 0)) {
+      this._heroRing.classList.remove("show");
+      return;
+    }
+    this._heroRing.classList.add("show");
+    const NS = "http://www.w3.org/2000/svg";
+    const mk = (tag, attrs) => {
+      const n = document.createElementNS(NS, tag);
+      for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, String(v));
+      return n;
+    };
+    const r = 46;
+    const c = 2 * Math.PI * r;
+    const frac = Math.min(1, elapsed / total);
+    const svg = mk("svg", { viewBox: "0 0 112 112" });
+    svg.append(mk("circle", { class: "trk", cx: 56, cy: 56, r }));
+    svg.append(mk("circle", { class: "prg", cx: 56, cy: 56, r, "stroke-dasharray": c.toFixed(1), "stroke-dashoffset": (c * (1 - frac)).toFixed(1) }));
+    const mid = el("div", { class: "mid" }, el("b", { text: Math.round(elapsed) + "/" + Math.round(total) }), el("span", { text: T(" วัน").trim() }));
+    this._heroRing.append(svg, mid);
+  }
+
   _renderStatus() {
     this._renderBaselineOptions();
     const rate = this._st("sensor.electricity_bill_effective_rate");
@@ -861,6 +943,7 @@ class ElectricityBillPanel extends HTMLElement {
     this._heroSub.textContent =
       kwhTxt + (days != null ? T(" · ผ่านมา ") + days + T(" วัน") : "") + (rate ? " · " + num(rate.state, 2) + T(" บาท/หน่วย") : "");
 
+    this._renderRing(Number(days), fc ? Number(fc.attributes.cycle_days) : NaN);
     this._heroChips.replaceChildren();
     if (rate) {
       const fromBill = rate.attributes.source === "bill";
@@ -1101,15 +1184,16 @@ class ElectricityBillPanel extends HTMLElement {
       return;
     }
     const W = 600;
-    const H = 210;
+    const H = 230;
     const padL = 8;
     const padR = 8;
-    const padT = 22;
-    const padB = 30;
+    const padT = 26;
+    const padB = 32;
+    const plotH = H - padT - padB;
     const maxAmt = Math.max(...bills.map((b) => Number(b.amount) || 0), 1);
     const maxKwh = Math.max(...bills.map((b) => Number(b.kwh) || 0), 1);
     const slot = (W - padL - padR) / bills.length;
-    const barW = Math.min(46, slot * 0.62);
+    const barW = Math.min(46, slot * 0.6);
     const NS = "http://www.w3.org/2000/svg";
     const svgEl = (tag, attrs, text) => {
       const n = document.createElementNS(NS, tag);
@@ -1118,26 +1202,52 @@ class ElectricityBillPanel extends HTMLElement {
       return n;
     };
     const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": T("กราฟยอดบิลและหน่วยไฟรายรอบบิล") });
+    const defs = svgEl("defs");
+    const grad = svgEl("linearGradient", { id: "ebBar", x1: 0, y1: 0, x2: 0, y2: 1 });
+    grad.append(svgEl("stop", { offset: "0%", "stop-color": "var(--eb-accent-2, #7c4dff)" }));
+    grad.append(svgEl("stop", { offset: "100%", "stop-color": "var(--eb-accent, #03a9f4)", "stop-opacity": 0.75 }));
+    defs.append(grad);
+    svg.append(defs);
+    for (let g = 0; g <= 3; g++) {
+      const y = padT + (plotH * g) / 3;
+      svg.append(svgEl("line", { class: "grid-line", x1: padL, x2: W - padR, y1: y, y2: y }));
+    }
     const pts = [];
     bills.forEach((b, i) => {
       const x = padL + slot * i + (slot - barW) / 2;
-      const h = ((Number(b.amount) || 0) / maxAmt) * (H - padT - padB);
+      const h = ((Number(b.amount) || 0) / maxAmt) * plotH;
       const y = H - padB - h;
-      svg.append(svgEl("rect", { class: "bar-rect" + (i === bills.length - 1 ? " latest" : ""), x, y, width: barW, height: Math.max(2, h), rx: 4 }));
-      svg.append(svgEl("text", { class: "val", x: x + barW / 2, y: y - 5, "text-anchor": "middle" }, num(b.amount, 0)));
+      const rect = svgEl("rect", { class: "bar-rect" + (i === bills.length - 1 ? " latest" : ""), x, y, width: barW, height: Math.max(3, h), rx: 8 });
+      rect.style.animationDelay = i * 45 + "ms";
+      rect.append(svgEl("title", {}, (b.period_end || "") + " · " + num(b.amount, 2) + " · " + num(b.kwh, 1) + " kWh"));
+      svg.append(rect);
+      svg.append(svgEl("text", { class: "val", x: x + barW / 2, y: y - 7, "text-anchor": "middle" }, num(b.amount, 0)));
       const d = b.period_end ? new Date(b.period_end + "T12:00:00") : null;
       const label = d && !isNaN(d) ? d.toLocaleDateString(LOCALE, { month: "short" }) : "";
-      svg.append(svgEl("text", { x: x + barW / 2, y: H - padB + 16, "text-anchor": "middle" }, label));
-      pts.push([x + barW / 2, H - padB - ((Number(b.kwh) || 0) / maxKwh) * (H - padT - padB)]);
+      svg.append(svgEl("text", { x: x + barW / 2, y: H - padB + 18, "text-anchor": "middle" }, label));
+      pts.push([x + barW / 2, H - padB - ((Number(b.kwh) || 0) / maxKwh) * plotH]);
     });
-    svg.append(svgEl("polyline", { class: "kwh-line", points: pts.map((q) => q[0].toFixed(1) + "," + q[1].toFixed(1)).join(" ") }));
-    for (const q of pts) svg.append(svgEl("circle", { class: "kwh-dot", cx: q[0], cy: q[1], r: 3.5 }));
+    // smooth curve through the kWh points (cardinal spline)
+    let dpath = "M" + pts[0][0].toFixed(1) + "," + pts[0][1].toFixed(1);
+    for (let k = 0; k < pts.length - 1; k++) {
+      const p0 = pts[k - 1] || pts[k];
+      const p1 = pts[k];
+      const p2 = pts[k + 1];
+      const p3 = pts[k + 2] || p2;
+      const c1x = p1[0] + (p2[0] - p0[0]) / 6;
+      const c1y = p1[1] + (p2[1] - p0[1]) / 6;
+      const c2x = p2[0] - (p3[0] - p1[0]) / 6;
+      const c2y = p2[1] - (p3[1] - p1[1]) / 6;
+      dpath += " C" + [c1x, c1y, c2x, c2y, p2[0], p2[1]].map((v) => v.toFixed(1)).join(",");
+    }
+    svg.append(svgEl("path", { class: "kwh-line", d: dpath }));
+    for (const q of pts) svg.append(svgEl("circle", { class: "kwh-dot", cx: q[0], cy: q[1], r: 4.5 }));
     this._chart.append(svg);
     this._chart.append(
       el(
         "div",
         { class: "chart-legend" },
-        el("span", {}, el("i", { style: "background:var(--primary-color,#03a9f4)" }), T("ยอดบิล (บาท)")),
+        el("span", {}, el("i", { style: "background:linear-gradient(135deg,var(--eb-accent-2,#7c4dff),var(--eb-accent,#03a9f4))" }), T("ยอดบิล (บาท)")),
         el("span", {}, el("i", { style: "background:var(--accent-color,#ff9800)" }), T("หน่วยไฟ (สูงสุด ") + num(maxKwh, 0) + " kWh)")
       )
     );

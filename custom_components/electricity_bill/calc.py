@@ -782,3 +782,30 @@ def parse_tariff_tiers(text: str) -> tuple[tuple[float | None, float], ...]:
         tiers.append((limit, rate))
         last_limit = limit
     return tuple(tiers)
+
+
+PANEL_ASSET_TYPES = {
+    ".js": "text/javascript",
+    ".css": "text/css",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+}
+
+
+def panel_asset_content_type(filename: str) -> str | None:
+    """Content type for a panel asset name, or None when the name is not allowed.
+
+    Only plain file names with a known extension are allowed (no path separators,
+    no leading dot), so a request can never leave the panel folder.
+    """
+    if not filename or "/" in filename or "\\" in filename or filename.startswith("."):
+        return None
+    dot = filename.rfind(".")
+    if dot <= 0:
+        return None
+    return PANEL_ASSET_TYPES.get(filename[dot:].lower())
+
+
+def panel_asset_etag(mtime_ns: int, size: int) -> str:
+    """Strong-enough ETag for a panel asset from its modification time and size."""
+    return f'"{mtime_ns:x}-{size:x}"'

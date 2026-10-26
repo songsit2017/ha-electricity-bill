@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 import voluptuous as vol
 
-from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
@@ -25,7 +24,7 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
-from .views import ScanView
+from .views import PanelAssetView, ScanView
 
 from .calc import (
     add_bill_record,
@@ -929,9 +928,7 @@ async def async_setup_entry(
     # Register static path for custom panel once
     if not hass.data[DOMAIN].get("static_path_registered"):
         frontend_path = Path(__file__).parent / "frontend"
-        await hass.http.async_register_static_paths(
-            [StaticPathConfig("/electricity_bill_panel", str(frontend_path), cache_headers=False)]
-        )
+        hass.http.register_view(PanelAssetView(frontend_path))
         hass.data[DOMAIN]["static_path_registered"] = True
 
     # Register custom panel once

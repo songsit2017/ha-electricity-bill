@@ -1,0 +1,235 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Tagihan Listrik",
+        "description": "Atur pelacak tagihan listrik dan pilih sensor energi sumber.",
+        "data": {
+          "name": "Nama",
+          "sources": "Sensor Energi Sumber",
+          "fallback_rate": "Tarif Cadangan (THB/kWh)"
+        }
+      }
+    },
+    "error": {
+      "no_sources": "Pilih setidaknya satu sensor energi."
+    },
+    "abort": {
+      "already_configured": "Hanya satu instans Tagihan Listrik yang diizinkan."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opsi Tagihan Listrik",
+        "description": "Perbarui meter utama, sensor energi, dan tarif cadangan.",
+        "data": {
+          "main_meter": "Meter utama (seluruh rumah) (opsional)",
+          "reset_button": "Tombol reset meter utama (opsional)",
+          "sources": "Sensor Energi Sumber (submeter jika meter utama diatur)",
+          "fallback_rate": "Tarif Cadangan (THB/kWh)",
+          "ai_task_entity": "Entitas AI Task (opsional)"
+        },
+        "data_description": {
+          "main_meter": "Sensor energi seluruh rumah. Jika diatur, energi dan biaya siklus hanya memakai meter ini; sumber di bawah hanya untuk rincian.",
+          "reset_button": "Tombol yang ditekan otomatis setelah Anda menambah tagihan yang lebih baru (mis. reset energi breaker). Energi yang terpakai sejak tanggal tagihan dipertahankan.",
+          "sources": "Submeter untuk rincian. Kosongkan jika hanya ada meter utama."
+        }
+      },
+      "tariff": {
+        "title": "Tarif, tanggal tutup, dan anggaran",
+        "description": "Opsional. Dengan profil tarif, integrasi memperkirakan tagihan penuh (tingkatan, tambahan per kWh seperti Ft, biaya tetap bulanan, pajak) dan memprediksinya hingga tanggal tutup berikutnya. Dengan \"none\", perkiraan memakai tarif efektif tagihan terakhir dan tidak ada yang perlu diisi di sini.",
+        "data": {
+          "tariff_profile": "Profil tarif",
+          "tariff_tiers": "Tingkatan kustom (untuk profil \"custom\")",
+          "ft_rate": "Tambahan per kWh (mis. Ft, THB/kWh)",
+          "service_charge": "Biaya tetap bulanan",
+          "vat_percent": "Pajak / PPN (%)",
+          "cutoff_day_30": "Tanggal tutup di bulan 30 hari",
+          "cutoff_day_31": "Tanggal tutup di bulan 31 hari",
+          "cutoff_day_feb": "Tanggal tutup di bulan Februari",
+          "budget_threshold": "Ambang peringatan anggaran (biaya per siklus)",
+          "high_usage_factor": "Peringatan pemakaian harian tinggi (x rata-rata siklus)"
+        },
+        "data_description": {
+          "tariff_profile": "none = perkiraan dengan tarif efektif tagihan terakhir. thailand_residential = tingkatan rumah tangga PEA/MEA Thailand (sejak tagihan Sep 2026). custom = tingkatan Anda sendiri.",
+          "tariff_tiers": "Format \"200:3.0, 400:4.1584, 4.3583\": batas atas kumulatif dalam kWh dan tarif per kWh; tingkatan terakhir tanpa batas.",
+          "cutoff_day_30": "Isi tanggal yang sama di ketiga kolom jika tanggal tutup Anda tetap. Kosongkan untuk menonaktifkan sensor tanggal tutup berikutnya dan perkiraan.",
+          "budget_threshold": "Memicu peristiwa electricity_bill_budget_exceeded sekali per siklus saat perkiraan tagihan mencapai jumlah ini.",
+          "high_usage_factor": "Memicu peristiwa electricity_bill_high_usage sekali sehari saat energi hari ini mencapai kelipatan ini dari rata-rata harian siklus (dan minimal 2 kWh). Kosongkan untuk menonaktifkan."
+        }
+      }
+    },
+    "error": {
+      "no_sources": "Pilih meter utama atau setidaknya satu sensor energi.",
+      "invalid_tiers": "Tingkatan tidak valid. Gunakan \"batas:tarif, batas:tarif, tarif\" dengan batas yang meningkat."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "cycle_kwh": {
+        "name": "Energi Siklus"
+      },
+      "effective_rate": {
+        "name": "Tarif Efektif"
+      },
+      "cycle_cost_estimate": {
+        "name": "Perkiraan Biaya Siklus"
+      },
+      "last_bill_amount": {
+        "name": "Jumlah Tagihan Terakhir"
+      },
+      "last_bill_kwh": {
+        "name": "Energi Tagihan Terakhir"
+      },
+      "last_bill_unmetered_kwh": {
+        "name": "Energi Tanpa Meter Tagihan Terakhir"
+      },
+      "bill_history": {
+        "name": "Riwayat Tagihan"
+      },
+      "cycle_unmetered_kwh": {
+        "name": "Energi Siklus Tanpa Submeter"
+      },
+      "cycle_bill_estimate": {
+        "name": "Perkiraan Tagihan Siklus"
+      },
+      "forecast_bill": {
+        "name": "Perkiraan Tagihan"
+      },
+      "next_cutoff_date": {
+        "name": "Tanggal Tutup Berikutnya"
+      },
+      "today_kwh": {
+        "name": "Energi Hari Ini"
+      },
+      "yesterday_kwh": {
+        "name": "Energi Kemarin"
+      },
+      "daily_average_kwh": {
+        "name": "Rata-rata Energi Harian"
+      }
+    }
+  },
+  "services": {
+    "add_bill": {
+      "name": "Tambah Tagihan",
+      "description": "Catat tagihan listrik bulanan, perbarui tarif per unit, dan atur ulang titik awal siklus.",
+      "fields": {
+        "period_start": {
+          "name": "Tanggal Mulai Periode",
+          "description": "Hari pertama periode tagihan (YYYY-MM-DD, opsional)."
+        },
+        "period_end": {
+          "name": "Tanggal Akhir Periode",
+          "description": "Hari terakhir periode tagihan yang dicakup tagihan (YYYY-MM-DD, default hari ini)."
+        },
+        "kwh": {
+          "name": "Total kWh",
+          "description": "Total energi dalam kWh dari tagihan."
+        },
+        "amount": {
+          "name": "Jumlah Total",
+          "description": "Jumlah total tagihan dalam THB."
+        },
+        "energy_charge": {
+          "name": "Biaya Energi",
+          "description": "Biaya listrik dasar dalam THB (opsional)."
+        },
+        "ft_charge": {
+          "name": "Biaya Ft",
+          "description": "Biaya penyesuaian bahan bakar (Ft) dalam THB, boleh negatif (opsional)."
+        },
+        "service_charge": {
+          "name": "Biaya Layanan",
+          "description": "Biaya layanan bulanan dalam THB (opsional)."
+        },
+        "vat": {
+          "name": "PPN",
+          "description": "Pajak Pertambahan Nilai (7%) dalam THB (opsional)."
+        },
+        "note": {
+          "name": "Catatan",
+          "description": "Catatan atau komentar opsional."
+        },
+        "replace": {
+          "name": "Ganti",
+          "description": "Izinkan menimpa tagihan yang ada dengan tanggal akhir periode yang sama."
+        }
+      }
+    },
+    "remove_bill": {
+      "name": "Hapus Tagihan",
+      "description": "Hapus tagihan berdasarkan ID atau tanggal akhir periode.",
+      "fields": {
+        "id": {
+          "name": "ID Tagihan",
+          "description": "UUID tagihan yang akan dihapus."
+        },
+        "period_end": {
+          "name": "Tanggal Akhir Periode",
+          "description": "Tanggal akhir periode tagihan yang akan dihapus (YYYY-MM-DD)."
+        }
+      }
+    },
+    "reset_cycle": {
+      "name": "Atur Ulang Siklus",
+      "description": "Atur ulang titik awal siklus ke keadaan sensor saat ini tanpa mencatat tagihan."
+    },
+    "set_baseline": {
+      "name": "Setel Titik Awal",
+      "description": "Setel titik awal siklus satu sensor sumber ke nilai meter (energi siklus = nilai saat ini - titik awal). Gunakan 0 untuk penghitung yang mulai dari 0.",
+      "fields": {
+        "entity_id": {
+          "name": "Sensor sumber",
+          "description": "Entitas sensor sumber."
+        },
+        "value": {
+          "name": "Nilai titik awal (kWh)",
+          "description": "Nilai meter pada awal siklus (default 0)."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "duplicate_period_end": {
+      "message": "Tagihan dengan akhir periode {period_end} sudah ada. Kirim replace: true untuk menimpa."
+    },
+    "invalid_kwh": {
+      "message": "kWh harus lebih besar dari nol."
+    },
+    "invalid_amount": {
+      "message": "Jumlah harus lebih besar dari nol."
+    },
+    "invalid_date": {
+      "message": "Format tanggal period_end tidak valid. Diharapkan YYYY-MM-DD."
+    },
+    "invalid_period": {
+      "message": "Tanggal mulai periode harus sebelum atau sama dengan tanggal akhir periode."
+    },
+    "invalid_charge": {
+      "message": "Jumlah biaya harus berupa angka terhingga yang valid dan tidak negatif (kecuali Ft)."
+    },
+    "bill_not_found": {
+      "message": "Tagihan dengan ID atau akhir periode yang ditentukan tidak ditemukan."
+    },
+    "missing_bill_identifier": {
+      "message": "Harus menyertakan id atau period_end untuk menghapus tagihan."
+    },
+    "no_energy_sources": {
+      "message": "Belum ada sumber energi yang dikonfigurasi."
+    },
+    "unknown_source": {
+      "message": "{entity_id} bukan salah satu sensor sumber yang dikonfigurasi."
+    }
+  },
+  "selector": {
+    "tariff_profile": {
+      "options": {
+        "none": "Tidak ada (pakai tarif efektif)",
+        "thailand_residential": "Rumah tangga Thailand (PEA/MEA)",
+        "custom": "Tingkatan kustom"
+      }
+    }
+  }
+}

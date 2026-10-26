@@ -66,7 +66,7 @@ Home Assistant custom integration สำหรับบันทึกบิล�
 | `sensor.electricity_bill_cycle_unmetered_energy` | Cycle Unmetered Energy | kWh | หน่วยรอบนี้ที่ไม่มีมิเตอร์ย่อย (มิเตอร์หลัก − มิเตอร์ย่อย) สร้างเฉพาะเมื่อตั้งมิเตอร์หลัก | `main_meter`, `submetered_kwh` |
 | `sensor.electricity_bill_cycle_bill_estimate` | Cycle Bill Estimate | บาท/สกุลเงินของ HA | ประมาณการบิลเต็มของรอบนี้ ตามโปรไฟล์อัตราค่าไฟ (ไม่ใช้โปรไฟล์ = หน่วย × อัตราเฉลี่ย) | `energy_charge`, `ft_charge`, `service_charge`, `subtotal`, `vat`, `total` |
 | `sensor.electricity_bill_forecast_bill` | Forecast Bill | บาท/สกุลเงินของ HA | คาดการณ์บิลถึงวันตัดรอบถัดไป จากค่าเฉลี่ยต่อวันของรอบนี้ (ต้องตั้งวันตัดรอบ) | `forecast_kwh`, `kwh_per_day`, `cycle_days`, `cutoff_date` |
-| `sensor.electricity_bill_next_cutoff_date` | Next Billing Day | วันที่ | วันตัดรอบถัดไป (ต้องตั้งวันตัดรอบ) | - |
+| `sensor.electricity_bill_next_billing_day` | Next Billing Day | วันที่ | วันตัดรอบถัดไป (ต้องตั้งวันตัดรอบ) | - |
 | `sensor.electricity_bill_effective_rate` | Effective Rate | THB/kWh | อัตราค่าไฟจริงต่อหน่วยจากบิลล่าสุด | `source` ("bill"/"fallback"), `based_on_period_end` |
 | `sensor.electricity_bill_cycle_cost_estimate` | Cycle Cost Estimate | THB | ประมาณการค่าไฟรอบปัจจุบัน (`cycle_kwh * rate`) | `rate_used` |
 | `sensor.electricity_bill_last_bill_amount` | Last Bill Amount | THB | ยอดเงินรวมของบิลล่าสุด | `period_start`, `period_end`, `kwh`, `rate`, `note` |

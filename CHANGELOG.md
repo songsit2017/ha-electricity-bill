@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1
+- Fix: the second options page ("Tariff, billing day and budget") failed to open with "Unknown error occurred" because the Ft field used a number step (0.0001) below Home Assistant's minimum (0.001); it now uses a free step.
+- Docs: the billing-day sensor entity id is `sensor.electricity_bill_next_billing_day` (README said `next_cutoff_date`).
+
 ## 0.6.0
 - Tariff profiles (`none` default, `thailand_residential`, `custom` tiers) with per-kWh adder (Ft), fixed monthly charge and tax; new sensors `Cycle Bill Estimate`, `Forecast Bill`, `Next Billing Day`.
 - Billing day by month length (30 / 31 / February) with forecast to the next billing day.

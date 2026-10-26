@@ -65,7 +65,7 @@ All sensors belong to the **Electricity Bill** device:
 | `sensor.electricity_bill_cycle_unmetered_energy` | Cycle Unmetered Energy | kWh | Energy this cycle not covered by sub-meters (main − sub-meters); only created when a main meter is set | `main_meter`, `submetered_kwh` |
 | `sensor.electricity_bill_cycle_bill_estimate` | Cycle Bill Estimate | HA currency | Estimated full bill of the current cycle for the chosen tariff profile (no profile = units × effective rate) | `energy_charge`, `ft_charge`, `service_charge`, `subtotal`, `vat`, `total` |
 | `sensor.electricity_bill_forecast_bill` | Forecast Bill | HA currency | Bill forecast to the next billing day from this cycle's daily average (needs the billing day set) | `forecast_kwh`, `kwh_per_day`, `cycle_days`, `cutoff_date` |
-| `sensor.electricity_bill_next_cutoff_date` | Next Billing Day | date | Next billing (cut-off) day (needs the billing day set) | - |
+| `sensor.electricity_bill_next_billing_day` | Next Billing Day | date | Next billing (cut-off) day (needs the billing day set) | - |
 | `sensor.electricity_bill_effective_rate` | Effective Rate | THB/kWh | Real rate per unit from the latest bill | `source` ("bill"/"fallback"), `based_on_period_end` |
 | `sensor.electricity_bill_cycle_cost_estimate` | Cycle Cost Estimate | THB | Estimated cost of the current cycle (`cycle energy * rate`) | `rate_used` |
 | `sensor.electricity_bill_last_bill_amount` | Last Bill Amount | THB | Total amount of the latest bill | `period_start`, `period_end`, `kwh`, `rate`, `note` |

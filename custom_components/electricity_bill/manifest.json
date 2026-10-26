@@ -1,16 +1,6 @@
 {
   "domain": "electricity_bill",
   "name": "Electricity Bill",
-  "version": "0.3.1",
-  "config_flow": true,
-  "documentation": "https://github.com/songsit2017/ha-electricity-bill",
-  "issue_tracker": "https://github.com/songsit2017/ha-electricity-bill/issues",
-  "dependencies": [
-    "recorder",
-    "http",
-    "frontend",
-    "panel_custom"
-  ],
   "after_dependencies": [
     "ai_task",
     "media_source"
@@ -18,6 +8,16 @@
   "codeowners": [
     "@songsit2017"
   ],
+  "config_flow": true,
+  "dependencies": [
+    "recorder",
+    "http",
+    "frontend",
+    "panel_custom"
+  ],
+  "documentation": "https://github.com/songsit2017/ha-electricity-bill",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/songsit2017/ha-electricity-bill/issues",
   "requirements": [],
-  "iot_class": "calculated"
+  "version": "0.4.0"
 }

@@ -809,3 +809,54 @@ def panel_asset_content_type(filename: str) -> str | None:
 def panel_asset_etag(mtime_ns: int, size: int) -> str:
     """Strong-enough ETag for a panel asset from its modification time and size."""
     return f'"{mtime_ns:x}-{size:x}"'
+
+
+def calculate_daily_average(cycle_kwh: float, days_elapsed: int) -> float:
+    """Average kWh per day of the cycle so far (at least one day)."""
+    return round(max(0.0, float(cycle_kwh)) / max(1, int(days_elapsed)), 4)
+
+
+def is_high_usage(
+    today_kwh: float,
+    daily_average: float,
+    factor: float | None,
+    min_kwh: float = 2.0,
+) -> bool:
+    """True when today's energy is at least ``factor`` times the cycle's daily average.
+
+    Disabled without a factor; ignores small totals (below ``min_kwh``) and a missing average.
+    """
+    if not factor or factor <= 0 or daily_average <= 0:
+        return False
+    return float(today_kwh) >= max(float(min_kwh), float(factor) * float(daily_average))
+
+
+def roll_day(
+    stored_day: dict[str, Any] | None,
+    today: str,
+    yesterday: str,
+    current_snapshot: dict[str, float],
+    only: Iterable[str] | None = None,
+) -> tuple[dict[str, Any], float | None, bool]:
+    """Roll the "day start" record over to ``today``.
+
+    Returns (day_record, yesterday_kwh_or_None, changed). ``day_record`` holds the date and
+    the meter snapshot at the start of that day. When the stored day is yesterday, its energy
+    (current - start) is returned as yesterday's total; older or missing records give None.
+    Sources that appear later in the day start counting from their first value.
+    """
+    snapshot = dict(current_snapshot)
+    if stored_day and stored_day.get("date") == today:
+        known = dict(stored_day.get("snapshot", {}))
+        changed = False
+        for key, value in snapshot.items():
+            if key not in known:
+                known[key] = value
+                changed = True
+        return {"date": today, "snapshot": known}, None, changed
+    yesterday_kwh: float | None = None
+    if stored_day and stored_day.get("date") == yesterday:
+        yesterday_kwh, _ = calculate_snapshot_delta(
+            snapshot, stored_day.get("snapshot", {}), only=only
+        )
+    return {"date": today, "snapshot": snapshot}, yesterday_kwh, True

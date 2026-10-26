@@ -28,6 +28,9 @@ const CONFIDENCE_TEXT = { high: "AI มั่นใจสูง", medium: "AI �
 // e.g. I18N.de = { "บันทึกบิล": "Rechnung speichern", ... }; missing keys fall back to Thai.
 const I18N = {
   en: {
+    "ใช้ไฟวันนี้": "Today",
+    " · เมื่อวาน ": " · yesterday ",
+    "เทียบรอบก่อน ": "vs previous cycle ",
     "ใช้ไฟรายเครื่อง (รอบนี้)": "Energy by device (this cycle)",
     "ยังไม่มีข้อมูลรายเครื่อง": "No per-device data yet",
     "ใช้ไฟรายวัน (รอบนี้)": "Daily usage (this cycle)",
@@ -879,6 +882,8 @@ class ElectricityBillPanel extends HTMLElement {
       "sensor.electricity_bill_cycle_unmetered_energy",
       "sensor.electricity_bill_cycle_bill_estimate",
       "sensor.electricity_bill_forecast_bill",
+      "sensor.electricity_bill_today_energy",
+      "sensor.electricity_bill_yesterday_energy",
       "sensor.electricity_bill_bill_history",
     ];
     const sig =
@@ -1020,7 +1025,20 @@ class ElectricityBillPanel extends HTMLElement {
     const cycleUnmTile = this._hass.states["sensor.electricity_bill_cycle_unmetered_energy"]
       ? [tile("mdi:home-lightning-bolt-outline", T("ไฟรอบนี้ที่ไม่มีมิเตอร์ย่อย"), cycUnm ? num(cycUnm.state, 1) : null, "kWh")]
       : [];
+    const todayS = this._st("sensor.electricity_bill_today_energy");
+    const ydayS = this._st("sensor.electricity_bill_yesterday_energy");
+    const todayTile = this._hass.states["sensor.electricity_bill_today_energy"]
+      ? [
+          tile(
+            "mdi:calendar-today",
+            T("ใช้ไฟวันนี้"),
+            todayS ? num(todayS.state, 2) : null,
+            "kWh" + (ydayS ? T(" · เมื่อวาน ") + num(ydayS.state, 2) : "")
+          ),
+        ]
+      : [];
     this._tiles.replaceChildren(
+      ...todayTile,
       ...cycleUnmTile,
       tile("mdi:receipt-text", T("ยอดบิลล่าสุด"), lastAmt ? num(lastAmt.state, 2) : null, T("บาท")),
       tile("mdi:lightning-bolt", T("หน่วยตามบิลล่าสุด"), lastKwh ? num(lastKwh.state, 1) : null, "kWh"),
@@ -1378,6 +1396,28 @@ class ElectricityBillPanel extends HTMLElement {
       }
       this._dailyData = Array.from(byDay.entries()).sort((a, b) => a[0] - b[0]).map(([s, c]) => ({ start: s, kwh: c }));
       this._dailyError = false;
+      this._prevCompare = null;
+      // same number of days from the start of the previous billing cycle (needs statistics that far back)
+      const hist = this._hass.states["sensor.electricity_bill_bill_history"];
+      const last = hist && hist.attributes && hist.attributes.bills && hist.attributes.bills[0];
+      const n = this._dailyData.length;
+      if (last && last.period_start && n > 0) {
+        const pStart = new Date(last.period_start + "T00:00:00");
+        const pEnd = new Date(pStart.getTime() + n * 86400000);
+        const prev = await this._hass.callWS({
+          type: "recorder/statistics_during_period",
+          start_time: pStart.toISOString(),
+          end_time: pEnd.toISOString(),
+          statistic_ids: ids,
+          period: "day",
+          types: ["change"],
+        });
+        const prevByDay = new Map();
+        for (const id of ids) for (const row of prev[id] || []) prevByDay.set(row.start, (prevByDay.get(row.start) || 0) + (Number(row.change) || 0));
+        const prevTotal = Array.from(prevByDay.values()).reduce((s, v) => s + v, 0);
+        const curTotal = this._dailyData.reduce((s, d) => s + d.kwh, 0);
+        if (prevByDay.size >= n && prevTotal > 0) this._prevCompare = ((curTotal - prevTotal) / prevTotal) * 100;
+      }
     } catch (e) {
       this._dailyData = [];
       this._dailyError = true;
@@ -1434,7 +1474,10 @@ class ElectricityBillPanel extends HTMLElement {
         "div",
         { class: "daily-sum" },
         el("span", {}, T("รวม "), el("b", { text: num(total, 1) + " kWh" })),
-        el("span", {}, T("เฉลี่ย "), el("b", { text: num(avg, 2) + " " + T("หน่วย/วัน") }))
+        el("span", {}, T("เฉลี่ย "), el("b", { text: num(avg, 2) + " " + T("หน่วย/วัน") })),
+        this._prevCompare != null
+          ? el("span", {}, T("เทียบรอบก่อน "), el("b", { text: (this._prevCompare > 0 ? "+" : "") + num(this._prevCompare, 1) + "%" }))
+          : null
       )
     );
   }

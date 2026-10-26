@@ -56,6 +56,7 @@ from .const import (
     SERVICE_ADD_BILL,
     SERVICE_REMOVE_BILL,
     SERVICE_RESET_CYCLE,
+    SERVICE_SET_BASELINE,
 )
 from .store import ElectricityBillStore
 
@@ -88,6 +89,13 @@ REMOVE_BILL_SCHEMA = vol.Schema(
 )
 
 RESET_CYCLE_SCHEMA = vol.Schema({})
+
+SET_BASELINE_SCHEMA = vol.Schema(
+    {
+        vol.Required("entity_id"): cv.entity_id,
+        vol.Optional("value", default=0.0): vol.Coerce(float),
+    }
+)
 
 
 class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -552,6 +560,25 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._update_internal_data()
         self.async_update_listeners()
 
+    async def async_set_baseline(self, entity_id: str, value: float) -> None:
+        """Set the cycle baseline of one source to an explicit meter value (cycle = current - value)."""
+        if entity_id not in self.sources:
+            raise ServiceValidationError(
+                f"{entity_id} is not one of the configured source sensors.",
+                translation_domain=DOMAIN,
+                translation_key="unknown_source",
+                translation_placeholders={"entity_id": entity_id},
+            )
+        self.cycle_snapshot[entity_id] = round(float(value), 4)
+        await self.store.async_save(
+            {
+                "bills": self.bills,
+                "cycle_snapshot": self.cycle_snapshot,
+            }
+        )
+        self._update_internal_data()
+        self.async_update_listeners()
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -627,6 +654,8 @@ async def async_unload_entry(
             hass.services.async_remove(DOMAIN, SERVICE_REMOVE_BILL)
         if hass.services.has_service(DOMAIN, SERVICE_RESET_CYCLE):
             hass.services.async_remove(DOMAIN, SERVICE_RESET_CYCLE)
+        if hass.services.has_service(DOMAIN, SERVICE_SET_BASELINE):
+            hass.services.async_remove(DOMAIN, SERVICE_SET_BASELINE)
 
         try:
             from homeassistant.components.frontend import async_remove_panel
@@ -700,6 +729,17 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         coordinator = entries[0].runtime_data
         await coordinator.async_reset_cycle()
 
+    async def handle_set_baseline(call: ServiceCall) -> None:
+        entries: list[ElectricityBillConfigEntry] = hass.config_entries.async_entries(DOMAIN)
+        if not entries:
+            raise ServiceValidationError(
+                "No Electricity Bill integration configured.",
+                translation_domain=DOMAIN,
+                translation_key="no_energy_sources",
+            )
+        coordinator = entries[0].runtime_data
+        await coordinator.async_set_baseline(call.data["entity_id"], call.data["value"])
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_ADD_BILL,
@@ -717,4 +757,10 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_RESET_CYCLE,
         handle_reset_cycle,
         schema=RESET_CYCLE_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_BASELINE,
+        handle_set_baseline,
+        schema=SET_BASELINE_SCHEMA,
     )

@@ -123,6 +123,20 @@
     "reset_cycle": {
       "name": "Reset Cycle",
       "description": "Reset cycle baseline to current sensor states without recording a bill."
+    },
+    "set_baseline": {
+      "name": "Set Baseline",
+      "description": "Set the cycle baseline of one source sensor to a meter value (cycle energy = current value - baseline). Use 0 for a counter that started at 0.",
+      "fields": {
+        "entity_id": {
+          "name": "Source sensor",
+          "description": "Source sensor entity."
+        },
+        "value": {
+          "name": "Baseline value (kWh)",
+          "description": "Meter value at the start of the cycle (default 0)."
+        }
+      }
     }
   },
   "exceptions": {
@@ -152,6 +166,9 @@
     },
     "no_energy_sources": {
       "message": "No energy sources configured."
+    },
+    "unknown_source": {
+      "message": "{entity_id} is not one of the configured source sensors."
     }
   }
 }

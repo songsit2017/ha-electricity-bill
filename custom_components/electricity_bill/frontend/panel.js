@@ -344,6 +344,19 @@ const STYLE = `
   .toast.err { background: #c62828; }
   .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; animation: rot .8s linear infinite; }
   @keyframes rot { to { transform: rotate(360deg); } }
+  .chart-card svg { width: 100%; height: auto; display: block; }
+  .chart-card .bar-rect { fill: var(--primary-color, #03a9f4); opacity: .85; }
+  .chart-card .bar-rect.latest { opacity: 1; }
+  .chart-card .kwh-line { fill: none; stroke: var(--accent-color, #ff9800); stroke-width: 2; }
+  .chart-card .kwh-dot { fill: var(--accent-color, #ff9800); }
+  .chart-card text { fill: var(--secondary-text-color, #888); font-size: 11px; font-family: inherit; }
+  .chart-card .val { fill: var(--primary-text-color, #222); font-size: 11px; }
+  .chart-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 6px; font-size: 12px; color: var(--secondary-text-color, #888); }
+  .chart-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  .edit-banner { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; margin-bottom: 12px; border-radius: 12px; background: var(--secondary-background-color, #eee); font-size: 14px; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .card-head h2 { margin: 0; }
+  .input input:disabled { opacity: .6; }
   @media (max-width: 520px) {
     .page { padding: 12px 12px 40px; }
     .hero { padding: 20px; }
@@ -389,6 +402,7 @@ class ElectricityBillPanel extends HTMLElement {
     this._previewUrl = null;
     this._toastTimer = null;
     this._expandedIds = new Set();
+    this._editing = null;
   }
 
   set hass(h) {
@@ -534,10 +548,12 @@ class ElectricityBillPanel extends HTMLElement {
       )
     );
 
+    this._editBanner = el("div");
     const addCard = el(
       "div",
       { class: "card" },
       el("h2", {}, icon("mdi:camera-plus"), "เพิ่มบิลใหม่"),
+      this._editBanner,
       el("p", { class: "hint", text: "ถ่ายรูปบิลหรือพิมพ์ตัวเลขเองก็ได้ วันตัดรอบขยับได้ตามบิลจริง" }),
       this._preview,
       this._drop,
@@ -557,10 +573,23 @@ class ElectricityBillPanel extends HTMLElement {
 
     // history card
     this._history = el("div", { class: "history" });
+    this._addCard = addCard;
+    this._chart = el("div");
+    const chartCard = el(
+      "div",
+      { class: "card chart-card" },
+      el("h2", {}, icon("mdi:chart-bar"), "แนวโน้มค่าไฟรายรอบบิล"),
+      this._chart
+    );
     const histCard = el(
       "div",
       { class: "card" },
-      el("h2", {}, icon("mdi:history"), "ประวัติบิล"),
+      el(
+        "div",
+        { class: "card-head" },
+        el("h2", {}, icon("mdi:history"), "ประวัติบิล"),
+        el("button", { class: "btn small ghost", title: "ส่งออกเป็นไฟล์ CSV", onclick: () => this._exportCsv() }, icon("mdi:download"), "CSV")
+      ),
       el("p", { class: "hint", text: "บิลที่บันทึกไว้ เรียงจากล่าสุด (กดที่แถวเพื่อดูรายละเอียด)" }),
       this._history
     );
@@ -589,7 +618,7 @@ class ElectricityBillPanel extends HTMLElement {
     );
 
     this._toast = el("div", { class: "toast" });
-    root.append(el("div", { class: "page" }, hero, this._tiles, el("div", { class: "grid" }, addCard, histCard), baseCard), this._toast);
+    root.append(el("div", { class: "page" }, hero, this._tiles, chartCard, el("div", { class: "grid" }, addCard, histCard), baseCard), this._toast);
   }
 
   /* ------------------------------ state ------------------------------ */
@@ -627,6 +656,7 @@ class ElectricityBillPanel extends HTMLElement {
     this._sig = sig;
     this._renderStatus();
     this._renderHistory();
+    this._renderChart();
   }
 
   _renderBaselineOptions() {
@@ -897,14 +927,147 @@ class ElectricityBillPanel extends HTMLElement {
         }
 
         // 6. Row actions (delete button)
+        const editBtn = el(
+          "button",
+          {
+            class: "btn small ghost",
+            title: "แก้ไขบิลนี้",
+            onclick: (e) => {
+              e.stopPropagation();
+              this._onEdit(b);
+            },
+          },
+          icon("mdi:pencil-outline"),
+          "แก้ไข"
+        );
         expandedChildren.push(
-          el("div", { class: "row-actions" }, delBtn)
+          el("div", { class: "row-actions" }, editBtn, delBtn)
         );
 
         rowEl.append(el("div", { class: "row-expanded" }, ...expandedChildren));
       }
 
       this._history.append(rowEl);
+    }
+  }
+
+  /* ------------------------------ chart / csv / edit ------------------------------ */
+  _renderChart() {
+    const s = this._hass.states["sensor.electricity_bill_bill_history"];
+    const all = ((s && s.attributes && s.attributes.bills) || []).slice().reverse(); // oldest first
+    const bills = all.slice(-12);
+    this._chart.replaceChildren();
+    if (bills.length < 2) {
+      this._chart.append(el("p", { class: "hint", text: "ต้องมีบิลอย่างน้อย 2 รอบเพื่อแสดงกราฟ" }));
+      return;
+    }
+    const W = 600;
+    const H = 210;
+    const padL = 8;
+    const padR = 8;
+    const padT = 22;
+    const padB = 30;
+    const maxAmt = Math.max(...bills.map((b) => Number(b.amount) || 0), 1);
+    const maxKwh = Math.max(...bills.map((b) => Number(b.kwh) || 0), 1);
+    const slot = (W - padL - padR) / bills.length;
+    const barW = Math.min(46, slot * 0.62);
+    const NS = "http://www.w3.org/2000/svg";
+    const svgEl = (tag, attrs, text) => {
+      const n = document.createElementNS(NS, tag);
+      for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, String(v));
+      if (text !== undefined) n.textContent = text;
+      return n;
+    };
+    const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "กราฟยอดบิลและหน่วยไฟรายรอบบิล" });
+    const pts = [];
+    bills.forEach((b, i) => {
+      const x = padL + slot * i + (slot - barW) / 2;
+      const h = ((Number(b.amount) || 0) / maxAmt) * (H - padT - padB);
+      const y = H - padB - h;
+      svg.append(svgEl("rect", { class: "bar-rect" + (i === bills.length - 1 ? " latest" : ""), x, y, width: barW, height: Math.max(2, h), rx: 4 }));
+      svg.append(svgEl("text", { class: "val", x: x + barW / 2, y: y - 5, "text-anchor": "middle" }, num(b.amount, 0)));
+      const d = b.period_end ? new Date(b.period_end + "T12:00:00") : null;
+      const label = d && !isNaN(d) ? d.toLocaleDateString("th-TH", { month: "short" }) : "";
+      svg.append(svgEl("text", { x: x + barW / 2, y: H - padB + 16, "text-anchor": "middle" }, label));
+      pts.push([x + barW / 2, H - padB - ((Number(b.kwh) || 0) / maxKwh) * (H - padT - padB)]);
+    });
+    svg.append(svgEl("polyline", { class: "kwh-line", points: pts.map((q) => q[0].toFixed(1) + "," + q[1].toFixed(1)).join(" ") }));
+    for (const q of pts) svg.append(svgEl("circle", { class: "kwh-dot", cx: q[0], cy: q[1], r: 3.5 }));
+    this._chart.append(svg);
+    this._chart.append(
+      el(
+        "div",
+        { class: "chart-legend" },
+        el("span", {}, el("i", { style: "background:var(--primary-color,#03a9f4)" }), "ยอดบิล (บาท)"),
+        el("span", {}, el("i", { style: "background:var(--accent-color,#ff9800)" }), "หน่วยไฟ (สูงสุด " + num(maxKwh, 0) + " kWh)")
+      )
+    );
+  }
+
+  _exportCsv() {
+    const s = this._hass.states["sensor.electricity_bill_bill_history"];
+    const bills = ((s && s.attributes && s.attributes.bills) || []).slice().reverse();
+    if (!bills.length) {
+      this._toastMsg("ยังไม่มีบิลให้ส่งออก", true);
+      return;
+    }
+    const cols = [
+      "period_start", "period_end", "days", "kwh", "amount", "rate",
+      "energy_charge", "ft_charge", "service_charge", "vat", "kwh_per_day", "baht_per_day", "note",
+    ];
+    const esc = (v) => {
+      if (v === null || v === undefined) return "";
+      const str = String(v);
+      return /[",\n]/.test(str) ? '"' + str.replace(/"/g, '""') + '"' : str;
+    };
+    const lines = [cols.join(",")].concat(bills.map((b) => cols.map((c) => esc(b[c])).join(",")));
+    const blob = new Blob(["\ufeff" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = el("a", { href: url, download: "electricity-bills.csv" });
+    this.shadowRoot.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    this._toastMsg("ส่งออก " + bills.length + " บิลเป็น CSV แล้ว", false);
+  }
+
+  _onEdit(b) {
+    this._editing = b.period_end;
+    this._dateInput.value = b.period_end || "";
+    this._dateInput.disabled = true;
+    this._kwhInput.value = b.kwh != null ? b.kwh : "";
+    this._amountInput.value = b.amount != null ? b.amount : "";
+    this._startDateInput.value = b.period_start_manual || "";
+    this._energyChargeInput.value = b.energy_charge != null ? b.energy_charge : "";
+    this._ftChargeInput.value = b.ft_charge != null ? b.ft_charge : "";
+    this._serviceChargeInput.value = b.service_charge != null ? b.service_charge : "";
+    this._vatInput.value = b.vat != null ? b.vat : "";
+    this._noteInput.value = b.note && b.note !== "manual" && b.note !== "scan" ? b.note : "";
+    if (this._detailsEl) this._detailsEl.open = [b.energy_charge, b.ft_charge, b.service_charge, b.vat].some((v) => v != null);
+    const d = b.period_end ? new Date(b.period_end + "T12:00:00") : null;
+    const dTxt = d && !isNaN(d) ? d.toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "2-digit" }) : b.period_end;
+    this._editBanner.replaceChildren(
+      el(
+        "div",
+        { class: "edit-banner" },
+        el("span", {}, icon("mdi:pencil"), " กำลังแก้ไขบิลวันที่ " + dTxt + " (เปลี่ยนวันสิ้นสุดรอบบิลไม่ได้ ถ้าจะเปลี่ยนให้ลบแล้วเพิ่มใหม่)"),
+        el("button", { class: "btn small ghost", onclick: () => this._exitEdit(true) }, "ยกเลิก")
+      )
+    );
+    this._onInput();
+    this._addCard.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  _exitEdit(clearInputs) {
+    this._editing = null;
+    this._dateInput.disabled = false;
+    this._editBanner.replaceChildren();
+    if (clearInputs) {
+      for (const i of [this._dateInput, this._kwhInput, this._amountInput, this._startDateInput, this._energyChargeInput, this._ftChargeInput, this._serviceChargeInput, this._vatInput, this._noteInput]) {
+        i.value = "";
+      }
+      if (this._detailsEl) this._detailsEl.open = false;
+      this._onInput();
     }
   }
 
@@ -1043,6 +1206,7 @@ class ElectricityBillPanel extends HTMLElement {
 
     const s = this._hass.states["sensor.electricity_bill_bill_history"];
     const exists = ((s && s.attributes.bills) || []).some((b) => b.period_end === period_end);
+    if (this._editing === period_end) replace = true;
     if (exists && !replace) {
       this._askBox.replaceChildren(
         el(
@@ -1109,6 +1273,7 @@ class ElectricityBillPanel extends HTMLElement {
         if (wrap) wrap.classList.remove("scanned");
       }
       if (this._detailsEl) this._detailsEl.open = false;
+      this._exitEdit(false);
 
       this._fromScan = false;
       this._confidence = null;

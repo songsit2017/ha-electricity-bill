@@ -28,6 +28,15 @@ const CONFIDENCE_TEXT = { high: "AI มั่นใจสูง", medium: "AI �
 // e.g. I18N.de = { "บันทึกบิล": "Rechnung speichern", ... }; missing keys fall back to Thai.
 const I18N = {
   en: {
+    "ใช้ไฟรายเครื่อง (รอบนี้)": "Energy by device (this cycle)",
+    "ยังไม่มีข้อมูลรายเครื่อง": "No per-device data yet",
+    "ใช้ไฟรายวัน (รอบนี้)": "Daily usage (this cycle)",
+    "ยังไม่มีสถิติรายวัน มิเตอร์เพิ่งเริ่มบันทึก": "No daily statistics yet: the meter has just started recording",
+    "อ่านสถิติรายวันไม่สำเร็จ": "Could not read the daily statistics",
+    "เฉลี่ย ": "Avg ",
+    "รวม ": "Total ",
+    "วันนี้": "Today",
+
     "อัตราค่าไฟต่อหน่วยดูผิดปกติ (นอกช่วง 1.5 – 12 บาท) ตรวจตัวเลขอีกครั้ง": "The rate per unit looks unusual (outside 1.5 – 12). Please check the numbers.",
     "วันที่สิ้นสุดรอบบิลเป็นวันในอนาคต กรุณาตรวจวันที่": "The period end date is in the future. Please check the date.",
     "วันเริ่มต้นรอบบิลต้องไม่เกินวันสิ้นสุดรอบบิล": "The period start must not be after the period end.",
@@ -545,6 +554,22 @@ const STYLE = `
   .bar i { border-radius: 999px; background: linear-gradient(90deg, var(--eb-accent), var(--eb-accent-2)); }
   .btn { border-radius: 14px; }
   @media (max-width: 520px) { .hero { grid-template-columns: 1fr; padding: 22px; } .hero-ring { width: 92px; height: 92px; justify-self: start; } .hero-ring .mid b { font-size: 21px; } }
+  .stack { display: flex; height: 16px; border-radius: 999px; overflow: hidden; background: var(--eb-soft); margin: 10px 0 14px; }
+  .stack i { display: block; height: 100%; transition: width .7s cubic-bezier(.2,.8,.2,1); }
+  .dev-row { display: grid; grid-template-columns: 14px 1fr auto auto; gap: 10px; align-items: center; padding: 8px 2px; border-bottom: 1px dashed var(--eb-line); font-size: 14px; }
+  .dev-row:last-child { border-bottom: 0; }
+  .dev-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dev-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dev-kwh { font-weight: 650; }
+  .dev-pct { color: var(--eb-muted); font-size: 12.5px; min-width: 44px; text-align: right; }
+  .daily-card svg { width: 100%; height: auto; display: block; max-width: 100%; }
+  .daily-card .d-bar { fill: var(--eb-accent); opacity: .8; transform-box: fill-box; transform-origin: 50% 100%; animation: ebGrow .6s cubic-bezier(.2,.8,.2,1) both; }
+  .daily-card .d-bar.today { fill: var(--eb-accent-2); opacity: 1; }
+  .daily-card .d-avg { stroke: var(--accent-color, #ff9800); stroke-width: 1.5; stroke-dasharray: 5 4; }
+  .daily-card text { fill: var(--secondary-text-color, #888); font-size: 10.5px; font-family: inherit; }
+  .daily-card .d-val { fill: var(--primary-text-color, #222); font-weight: 600; }
+  .daily-sum { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--eb-muted); margin-top: 6px; }
+  .daily-sum b { color: var(--primary-text-color, #222); }
   @media (prefers-reduced-motion: reduce) { .chart-card .bar-rect, .chart-card .kwh-line { animation: none; } .hero-ring .prg { transition: none; } }
   @media (max-width: 520px) {
     .page { padding: 12px 12px 40px; }
@@ -779,6 +804,23 @@ class ElectricityBillPanel extends HTMLElement {
       el("h2", {}, icon("mdi:chart-bar"), T("แนวโน้มค่าไฟรายรอบบิล")),
       this._chart
     );
+    this._breakdown = el("div");
+    const breakdownCard = el(
+      "div",
+      { class: "card" },
+      el("h2", {}, icon("mdi:chart-donut"), T("ใช้ไฟรายเครื่อง (รอบนี้)")),
+      this._breakdown
+    );
+    this._daily = el("div");
+    this._dailyData = null;
+    this._dailyKey = "";
+    this._dailyFetchedAt = 0;
+    const dailyCard = el(
+      "div",
+      { class: "card daily-card" },
+      el("h2", {}, icon("mdi:calendar-today"), T("ใช้ไฟรายวัน (รอบนี้)")),
+      this._daily
+    );
     const histCard = el(
       "div",
       { class: "card" },
@@ -816,7 +858,7 @@ class ElectricityBillPanel extends HTMLElement {
     );
 
     this._toast = el("div", { class: "toast" });
-    root.append(el("div", { class: "page" }, hero, this._tiles, chartCard, el("div", { class: "grid" }, addCard, histCard), baseCard), this._toast);
+    root.append(el("div", { class: "page" }, hero, this._tiles, chartCard, el("div", { class: "grid" }, breakdownCard, dailyCard), el("div", { class: "grid" }, addCard, histCard), baseCard), this._toast);
   }
 
   /* ------------------------------ state ------------------------------ */
@@ -855,6 +897,8 @@ class ElectricityBillPanel extends HTMLElement {
     this._renderStatus();
     this._renderHistory();
     this._renderChart();
+    this._renderBreakdown();
+    this._renderDaily();
   }
 
   _renderBaselineOptions() {
@@ -1249,6 +1293,148 @@ class ElectricityBillPanel extends HTMLElement {
         { class: "chart-legend" },
         el("span", {}, el("i", { style: "background:linear-gradient(135deg,var(--eb-accent-2,#7c4dff),var(--eb-accent,#03a9f4))" }), T("ยอดบิล (บาท)")),
         el("span", {}, el("i", { style: "background:var(--accent-color,#ff9800)" }), T("หน่วยไฟ (สูงสุด ") + num(maxKwh, 0) + " kWh)")
+      )
+    );
+  }
+
+  _nameOf(id) {
+    const s = this._hass.states[id];
+    const n = (s && s.attributes && s.attributes.friendly_name) || id;
+    return String(n).replace(/_kwh$/i, "").replace(/_/g, " ");
+  }
+
+  _mainMeter() {
+    const un = this._hass.states["sensor.electricity_bill_cycle_unmetered_energy"];
+    return (un && un.attributes && un.attributes.main_meter) || null;
+  }
+
+  _renderBreakdown() {
+    const cyc = this._st("sensor.electricity_bill_cycle_energy");
+    this._breakdown.replaceChildren();
+    const per = (cyc && cyc.attributes && cyc.attributes.per_source) || {};
+    const main = this._mainMeter();
+    const unm = this._st("sensor.electricity_bill_cycle_unmetered_energy");
+    const rows = [];
+    for (const [id, v] of Object.entries(per)) {
+      if (id === main) continue;
+      rows.push({ name: this._nameOf(id), kwh: Number(v) || 0 });
+    }
+    rows.sort((a, b) => b.kwh - a.kwh);
+    if (main && unm) rows.push({ name: T("ไฟรอบนี้ที่ไม่มีมิเตอร์ย่อย"), kwh: Number(unm.state) || 0, other: true });
+    const total = rows.reduce((s, r) => s + r.kwh, 0);
+    if (!rows.length || !(total > 0)) {
+      this._breakdown.append(el("p", { class: "hint", text: T("ยังไม่มีข้อมูลรายเครื่อง") }));
+      return;
+    }
+    const palette = ["var(--eb-accent)", "var(--eb-ok)", "var(--eb-warn)", "var(--eb-violet)", "#00acc1", "#ec407a", "#8d6e63", "#5c6bc0"];
+    const rate = Number((this._st("sensor.electricity_bill_effective_rate") || {}).state) || 0;
+    const stack = el("div", { class: "stack" });
+    const list = el("div", {});
+    rows.forEach((r, i) => {
+      const color = r.other ? "var(--eb-line)" : palette[i % palette.length];
+      const pct = (r.kwh / total) * 100;
+      stack.append(el("i", { style: "width:" + pct.toFixed(2) + "%;background:" + color, title: r.name + " " + num(r.kwh, 2) + " kWh" }));
+      list.append(
+        el(
+          "div",
+          { class: "dev-row" },
+          el("span", { class: "dev-dot", style: "background:" + color }),
+          el("span", { class: "dev-name", text: r.name }),
+          el("span", { class: "dev-kwh", text: num(r.kwh, 2) + " kWh" + (rate ? T(" · ฿") + num(r.kwh * rate, 0) : "") }),
+          el("span", { class: "dev-pct", text: num(pct, 0) + "%" })
+        )
+      );
+    });
+    this._breakdown.append(stack, list);
+  }
+
+  async _loadDaily() {
+    const cyc = this._st("sensor.electricity_bill_cycle_energy");
+    if (!cyc) return;
+    const main = this._mainMeter();
+    const per = (cyc.attributes && cyc.attributes.per_source) || {};
+    const ids = main ? [main] : Object.keys(per);
+    if (!ids.length) return;
+    const startStr = cyc.attributes.cycle_start;
+    const start = startStr ? new Date(startStr + "T00:00:00") : new Date(Date.now() - 30 * 86400000);
+    const key = ids.join(",") + "|" + start.toISOString();
+    const now = Date.now();
+    if (key === this._dailyKey && now - this._dailyFetchedAt < 300000) return;
+    this._dailyKey = key;
+    this._dailyFetchedAt = now;
+    try {
+      const res = await this._hass.callWS({
+        type: "recorder/statistics_during_period",
+        start_time: start.toISOString(),
+        statistic_ids: ids,
+        period: "day",
+        types: ["change"],
+      });
+      const byDay = new Map();
+      for (const id of ids) {
+        for (const row of res[id] || []) {
+          byDay.set(row.start, (byDay.get(row.start) || 0) + (Number(row.change) || 0));
+        }
+      }
+      this._dailyData = Array.from(byDay.entries()).sort((a, b) => a[0] - b[0]).map(([s, c]) => ({ start: s, kwh: c }));
+      this._dailyError = false;
+    } catch (e) {
+      this._dailyData = [];
+      this._dailyError = true;
+    }
+    this._renderDaily();
+  }
+
+  _renderDaily() {
+    this._loadDaily();
+    this._daily.replaceChildren();
+    const data = this._dailyData;
+    if (!data || !data.length || this._dailyError) {
+      if (data) this._daily.append(el("p", { class: "hint", text: T(this._dailyError ? "อ่านสถิติรายวันไม่สำเร็จ" : "ยังไม่มีสถิติรายวัน มิเตอร์เพิ่งเริ่มบันทึก") }));
+      return;
+    }
+    const W = 600;
+    const H = 190;
+    const padT = 22;
+    const padB = 26;
+    const plotH = H - padT - padB;
+    const max = Math.max(...data.map((d) => d.kwh), 0.1);
+    const total = data.reduce((s, d) => s + d.kwh, 0);
+    const avg = total / data.length;
+    const slot = W / data.length;
+    const barW = Math.max(3, Math.min(34, slot * 0.7));
+    const NS = "http://www.w3.org/2000/svg";
+    const mk = (tag, attrs, text) => {
+      const n = document.createElementNS(NS, tag);
+      for (const [k, v] of Object.entries(attrs || {})) n.setAttribute(k, String(v));
+      if (text !== undefined) n.textContent = text;
+      return n;
+    };
+    const svg = mk("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": T("ใช้ไฟรายวัน (รอบนี้)") });
+    const todayKey = new Date().toDateString();
+    const everyLabel = data.length > 20 ? 3 : data.length > 10 ? 2 : 1;
+    data.forEach((d, i) => {
+      const x = slot * i + (slot - barW) / 2;
+      const h = (d.kwh / max) * plotH;
+      const y = H - padB - h;
+      const dt = new Date(d.start);
+      const isToday = dt.toDateString() === todayKey;
+      const rect = mk("rect", { class: "d-bar" + (isToday ? " today" : ""), x, y, width: barW, height: Math.max(2, h), rx: Math.min(6, barW / 2) });
+      rect.style.animationDelay = i * 25 + "ms";
+      rect.append(mk("title", {}, dt.toLocaleDateString(LOCALE, { day: "numeric", month: "short" }) + " · " + num(d.kwh, 2) + " kWh"));
+      svg.append(rect);
+      if (data.length <= 14) svg.append(mk("text", { class: "d-val", x: x + barW / 2, y: y - 5, "text-anchor": "middle" }, num(d.kwh, 1)));
+      if (i % everyLabel === 0) svg.append(mk("text", { x: x + barW / 2, y: H - padB + 15, "text-anchor": "middle" }, String(dt.getDate())));
+    });
+    const ay = H - padB - (avg / max) * plotH;
+    svg.append(mk("line", { class: "d-avg", x1: 0, x2: W, y1: ay, y2: ay }));
+    this._daily.append(svg);
+    this._daily.append(
+      el(
+        "div",
+        { class: "daily-sum" },
+        el("span", {}, T("รวม "), el("b", { text: num(total, 1) + " kWh" })),
+        el("span", {}, T("เฉลี่ย "), el("b", { text: num(avg, 2) + " " + T("หน่วย/วัน") }))
       )
     );
   }

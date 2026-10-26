@@ -1,4 +1,4 @@
-"""HTTP API view for electricity bill scanning."""
+"""HTTP API views for electricity bill scanning and management."""
 from __future__ import annotations
 
 import logging

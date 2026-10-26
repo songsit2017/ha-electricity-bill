@@ -21,6 +21,46 @@ from . import ElectricityBillConfigEntry, ElectricityBillCoordinator
 CURRENCY_THB = "THB"
 
 
+def _last_bill_amount_attrs(data: dict[str, Any]) -> dict[str, Any]:
+    """Return attributes for last_bill_amount sensor."""
+    history = data.get("bill_history") or []
+    latest = history[0] if history else None
+    last_b = data.get("last_bill")
+
+    if not latest and not last_b:
+        return {
+            "period_start": None,
+            "period_end": None,
+            "kwh": None,
+            "rate": None,
+            "days": None,
+            "kwh_per_day": None,
+            "baht_per_day": None,
+            "amount_change_pct": None,
+            "energy_charge": None,
+            "ft_charge": None,
+            "service_charge": None,
+            "vat": None,
+            "note": "",
+        }
+
+    return {
+        "period_start": latest.get("period_start") if latest else (last_b or {}).get("period_start"),
+        "period_end": latest.get("period_end") if latest else (last_b or {}).get("period_end"),
+        "kwh": latest.get("kwh") if latest else (last_b or {}).get("kwh"),
+        "rate": latest.get("rate") if latest else (last_b or {}).get("rate"),
+        "days": latest.get("days") if latest else None,
+        "kwh_per_day": latest.get("kwh_per_day") if latest else None,
+        "baht_per_day": latest.get("baht_per_day") if latest else None,
+        "amount_change_pct": latest.get("amount_change_pct") if latest else None,
+        "energy_charge": latest.get("energy_charge") if latest else (last_b or {}).get("energy_charge"),
+        "ft_charge": latest.get("ft_charge") if latest else (last_b or {}).get("ft_charge"),
+        "service_charge": latest.get("service_charge") if latest else (last_b or {}).get("service_charge"),
+        "vat": latest.get("vat") if latest else (last_b or {}).get("vat"),
+        "note": latest.get("note", "") if latest else str((last_b or {}).get("note", "")),
+    }
+
+
 @dataclass(frozen=True, kw_only=True)
 class ElectricityBillSensorEntityDescription(SensorEntityDescription):
     """Describes an Electricity Bill sensor entity."""
@@ -71,23 +111,7 @@ SENSOR_DESCRIPTIONS: tuple[ElectricityBillSensorEntityDescription, ...] = (
         native_unit_of_measurement=CURRENCY_THB,
         suggested_display_precision=2,
         value_fn=lambda data: data.get("last_bill_amount"),
-        attr_fn=lambda data: (
-            {
-                "period_start": (data.get("last_bill") or {}).get("period_start"),
-                "period_end": (data.get("last_bill") or {}).get("period_end"),
-                "kwh": (data.get("last_bill") or {}).get("kwh"),
-                "rate": (data.get("last_bill") or {}).get("rate"),
-                "note": (data.get("last_bill") or {}).get("note", ""),
-            }
-            if data.get("last_bill")
-            else {
-                "period_start": None,
-                "period_end": None,
-                "kwh": None,
-                "rate": None,
-                "note": "",
-            }
-        ),
+        attr_fn=_last_bill_amount_attrs,
     ),
     ElectricityBillSensorEntityDescription(
         key="last_bill_kwh",

@@ -12,7 +12,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from .calc import validate_extraction
+from .calc import panel_asset_content_type, panel_asset_etag, validate_extraction
 from .const import CONF_AI_TASK_ENTITY, DOMAIN
 from .scan import ScanError, async_scan_image, pick_ai_task_entity
 
@@ -129,3 +129,41 @@ class ScanView(HomeAssistantView):
             return self.json({"ok": False, "error": "scan_failed"}, status_code=200)
         finally:
             await hass.async_add_executor_job(_delete_temp_file)
+
+
+class PanelAssetView(HomeAssistantView):
+    """Serve the sidebar panel files with `Cache-Control: no-cache`.
+
+    The browser keeps a copy but must revalidate it (ETag) on every load, so a panel
+    update shows up after a page refresh without restarting Home Assistant.
+    """
+
+    url = "/electricity_bill_panel/{filename}"
+    name = "electricity_bill_panel:asset"
+    requires_auth = False
+
+    def __init__(self, folder: Path) -> None:
+        self._folder = folder
+
+    async def get(self, request: web.Request, filename: str) -> web.StreamResponse:
+        content_type = panel_asset_content_type(filename)
+        if content_type is None:
+            return web.Response(status=404)
+        path = self._folder / filename
+        hass: HomeAssistant = request.app["hass"]
+
+        def _load() -> tuple[bytes, str] | None:
+            try:
+                stat = path.stat()
+                return path.read_bytes(), panel_asset_etag(stat.st_mtime_ns, stat.st_size)
+            except OSError:
+                return None
+
+        loaded = await hass.async_add_executor_job(_load)
+        if loaded is None:
+            return web.Response(status=404)
+        body, etag = loaded
+        headers = {"Cache-Control": "no-cache", "ETag": etag}
+        if request.headers.get("If-None-Match") == etag:
+            return web.Response(status=304, headers=headers)
+        return web.Response(body=body, content_type=content_type, charset="utf-8" if content_type.startswith("text/") else None, headers=headers)

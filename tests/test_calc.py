@@ -977,3 +977,17 @@ def test_config_flow_number_steps_respect_ha_minimum():
         assert float(match.group(1)) >= 0.001, match.group(0)
     for match in re.finditer(r"\(\s*CONF_[A-Z_0-9]+\s*,[^)]*,\s*([0-9.]+)\s*\)", src):
         assert float(match.group(1)) >= 0.001, match.group(0)
+
+
+def test_panel_asset_names_are_restricted_to_the_panel_folder():
+    assert calc.panel_asset_content_type("panel.js") == "text/javascript"
+    assert calc.panel_asset_content_type("PANEL.JS") == "text/javascript"
+    assert calc.panel_asset_content_type("style.css") == "text/css"
+    for bad in ("", "../manifest.json", "a/b.js", "..%sx.js" % chr(92), ".hidden.js", "noext", "panel.py", "x.json"):
+        assert calc.panel_asset_content_type(bad) is None, bad
+
+
+def test_panel_asset_etag_changes_with_file():
+    assert calc.panel_asset_etag(1, 10) != calc.panel_asset_etag(2, 10)
+    assert calc.panel_asset_etag(1, 10) != calc.panel_asset_etag(1, 11)
+    assert calc.panel_asset_etag(255, 16) == '"ff-10"'

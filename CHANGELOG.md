@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.8.2
+- The panel files are now served with `Cache-Control: no-cache` and an ETag, so a panel-only change shows after a page refresh and does not need a Home Assistant restart (code changes in the Python files still do).
+
 ## 0.8.1
 - Fix: the sidebar panel kept showing the old page after an update because browsers cached `panel.js`; the panel URL now carries the integration version (`panel.js?v=<version>`). After updating to 0.8.1 restart HA once and reload the page; later updates need no manual cache clearing.
 

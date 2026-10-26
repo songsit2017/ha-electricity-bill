@@ -44,5 +44,15 @@ class ElectricityBillStore:
 
     async def async_save(self, data: dict[str, Any]) -> None:
         """Save electricity bill data to storage."""
+        # keep extra keys (e.g. "budget_notified") that callers of async_save do not pass
+        merged = {k: v for k, v in (self._data or {}).items() if k not in data}
+        merged.update(data)
+        self._data = merged
+        await self._store.async_save(merged)
+
+    async def async_set_extra(self, key: str, value: Any) -> None:
+        """Persist one extra key next to bills and cycle_snapshot."""
+        data = dict(await self.async_load())
+        data[key] = value
         self._data = data
         await self._store.async_save(data)

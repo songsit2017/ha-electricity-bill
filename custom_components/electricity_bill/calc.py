@@ -633,3 +633,152 @@ def validate_extraction(
         "confidence": confidence,
         "warnings": warnings,
     }
+
+
+def calculate_progressive_energy_charge(
+    kwh: float,
+    tiers: Iterable[tuple[float | None, float]],
+) -> float:
+    """Energy charge for ``kwh`` units using stepped (progressive) tiers.
+
+    Each tier is (cumulative upper limit or None, baht per kWh); only the units
+    inside a tier are charged at that tier's rate.
+    """
+    remaining = max(0.0, float(kwh))
+    lower = 0.0
+    charge = 0.0
+    for upper, rate in tiers:
+        if remaining <= 0:
+            break
+        width = remaining if upper is None else min(remaining, float(upper) - lower)
+        if width > 0:
+            charge += width * float(rate)
+            remaining -= width
+        if upper is not None:
+            lower = float(upper)
+    return round(charge, 2)
+
+
+def estimate_bill(
+    kwh: float,
+    tiers_over_150: Iterable[tuple[float | None, float]],
+    tiers_up_to_150: Iterable[tuple[float | None, float]],
+    small_user_limit: float,
+    ft_rate: float,
+    service_charge: float,
+    vat_percent: float,
+) -> dict[str, float]:
+    """Estimate a residential bill for ``kwh`` units.
+
+    Returns energy_charge, ft_charge, service_charge, subtotal, vat and total (baht).
+    Users of ``small_user_limit`` kWh or less use the small-user tier table.
+    """
+    kwh = max(0.0, float(kwh))
+    tiers = tiers_up_to_150 if kwh <= small_user_limit else tiers_over_150
+    energy = calculate_progressive_energy_charge(kwh, tiers)
+    ft = round(kwh * float(ft_rate), 2)
+    service = round(float(service_charge), 2) if kwh > 0 else 0.0
+    subtotal = round(energy + ft + service, 2)
+    vat = round(subtotal * float(vat_percent) / 100.0, 2)
+    return {
+        "energy_charge": energy,
+        "ft_charge": ft,
+        "service_charge": service,
+        "subtotal": subtotal,
+        "vat": vat,
+        "total": round(subtotal + vat, 2),
+    }
+
+
+def cutoff_day_for_month(
+    year: int,
+    month: int,
+    cutoff_day_30: int,
+    cutoff_day_31: int,
+    cutoff_day_feb: int,
+) -> date:
+    """Meter-reading (cut-off) date of a month: by month length (30 / 31 / February)."""
+    if month == 2:
+        day = cutoff_day_feb
+    elif month in (4, 6, 9, 11):
+        day = cutoff_day_30
+    else:
+        day = cutoff_day_31
+    return date(year, month, int(day))
+
+
+def next_cutoff_date(
+    today: date,
+    cutoff_day_30: int,
+    cutoff_day_31: int,
+    cutoff_day_feb: int,
+) -> date:
+    """First cut-off date on or after ``today``."""
+    this_month = cutoff_day_for_month(
+        today.year, today.month, cutoff_day_30, cutoff_day_31, cutoff_day_feb
+    )
+    if this_month >= today:
+        return this_month
+    year, month = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
+    return cutoff_day_for_month(year, month, cutoff_day_30, cutoff_day_31, cutoff_day_feb)
+
+
+def forecast_cycle_kwh(
+    cycle_kwh: float,
+    cycle_start: str | None,
+    today: date,
+    cutoff: date,
+) -> tuple[float, float, int] | None:
+    """Project the cycle's energy to the cut-off date.
+
+    Returns (kwh_per_day, forecast_kwh, total_days) or None when there is no
+    cycle start. Uses the average daily energy so far (at least one day elapsed).
+    """
+    if not cycle_start:
+        return None
+    try:
+        start = datetime.strptime(cycle_start, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    total_days = (cutoff - start).days
+    if total_days <= 0:
+        return None
+    elapsed = max(1, (today - start).days)
+    per_day = max(0.0, float(cycle_kwh)) / elapsed
+    forecast = max(float(cycle_kwh), per_day * total_days)
+    return round(per_day, 4), round(forecast, 3), total_days
+
+
+def parse_tariff_tiers(text: str) -> tuple[tuple[float | None, float], ...]:
+    """Parse custom tiers like "200:3.0, 400:4.1584, 4.3583".
+
+    Each comma-separated item is "<cumulative upper limit kWh>:<rate per kWh>"; the
+    last item may omit the limit ("4.3583" or ":4.3583") and is always open-ended.
+    Raises ValueError on bad input (non-increasing limits, negative numbers, empty).
+    """
+    items = [i.strip() for i in str(text or "").replace(";", ",").split(",") if i.strip()]
+    if not items:
+        raise ValueError("no tiers")
+    tiers: list[tuple[float | None, float]] = []
+    last_limit = 0.0
+    for idx, item in enumerate(items):
+        if ":" in item:
+            limit_txt, rate_txt = item.split(":", 1)
+        else:
+            limit_txt, rate_txt = "", item
+        rate = float(rate_txt)
+        if rate < 0:
+            raise ValueError("rate must not be negative")
+        limit_txt = limit_txt.strip()
+        is_last = idx == len(items) - 1
+        if is_last:
+            tiers.append((None, rate))
+            break
+        if not limit_txt:
+            raise ValueError("only the last tier may omit its limit")
+        limit = float(limit_txt)
+        if limit <= last_limit:
+            raise ValueError("limits must be increasing")
+        tiers.append((limit, rate))
+        last_limit = limit
+    return tuple(tiers)

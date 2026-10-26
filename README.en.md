@@ -19,6 +19,7 @@ A Home Assistant custom integration that records your monthly electricity bill (
 - **"ค่าไฟ" sidebar panel**: enter a bill by hand, or photograph/upload it and let an AI Task (e.g. Anthropic) read the values (optional).
 - **Set the starting point yourself (v0.3.1)**: the `set_baseline` service (and the "Advanced" card in the panel, v0.5), for newly added sensors such as a whole-house breaker.
 - **Whole-house main meter (v0.5)**: one main meter drives the cycle energy and cost, sub-meters give the per-device breakdown, a live "unmetered this cycle" sensor, and an optional reset button that is pressed automatically after you record a bill.
+- **Tariff profiles (v0.6)**: choose "none" (default, works anywhere), "Thailand residential" or "custom" to estimate the full bill from tiers + a per-kWh adder (e.g. Ft) + fixed monthly charge + tax, and forecast it to the billing day (see "Tariff and forecast").
 - **Thai and English UI**.
 
 ---
@@ -62,6 +63,9 @@ All sensors belong to the **Electricity Bill** device:
 |---|---|---|---|---|
 | `sensor.electricity_bill_cycle_energy` | Cycle Energy | kWh | Energy used in the current billing cycle | `per_source`, `cycle_start`, `days_in_cycle` |
 | `sensor.electricity_bill_cycle_unmetered_energy` | Cycle Unmetered Energy | kWh | Energy this cycle not covered by sub-meters (main − sub-meters); only created when a main meter is set | `main_meter`, `submetered_kwh` |
+| `sensor.electricity_bill_cycle_bill_estimate` | Cycle Bill Estimate | HA currency | Estimated full bill of the current cycle for the chosen tariff profile (no profile = units × effective rate) | `energy_charge`, `ft_charge`, `service_charge`, `subtotal`, `vat`, `total` |
+| `sensor.electricity_bill_forecast_bill` | Forecast Bill | HA currency | Bill forecast to the next billing day from this cycle's daily average (needs the billing day set) | `forecast_kwh`, `kwh_per_day`, `cycle_days`, `cutoff_date` |
+| `sensor.electricity_bill_next_cutoff_date` | Next Billing Day | date | Next billing (cut-off) day (needs the billing day set) | - |
 | `sensor.electricity_bill_effective_rate` | Effective Rate | THB/kWh | Real rate per unit from the latest bill | `source` ("bill"/"fallback"), `based_on_period_end` |
 | `sensor.electricity_bill_cycle_cost_estimate` | Cycle Cost Estimate | THB | Estimated cost of the current cycle (`cycle energy * rate`) | `rate_used` |
 | `sensor.electricity_bill_last_bill_amount` | Last Bill Amount | THB | Total amount of the latest bill | `period_start`, `period_end`, `kwh`, `rate`, `note` |
@@ -113,6 +117,39 @@ data:
   entity_id: sensor.main_breaker_energy  # must be one of the Source Energy Sensors
   value: 0                               # meter value at the start of the cycle (default 0)
 ```
+
+---
+
+## Tariff and forecast (v0.6)
+
+On the second page of **Configure** ("Tariff, billing day and budget") choose a **tariff profile**:
+
+| Profile | What it does |
+|---|---|
+| `none` (default) | Works in any country. Estimates use the real effective rate of your last bill (units × THB/kWh); nothing else to fill in. |
+| `thailand_residential` | Thai PEA/MEA residential tariff from the September 2026 bill: first 200 kWh 3.0000, 201-400 kWh 4.1584, above 400 kWh 4.3583 THB/kWh (users of 150 kWh or less use the small-user table 2.3488 / 2.9882 first) + Ft + monthly service charge + 7% VAT. Defaults: Ft 0.1623, service charge 24.62, billing day 24 (30-day months) / 25 (31-day months), all editable. Checked against the real Sep and Oct 2026 bills: energy charge matches within 5 satang. |
+| `custom` | Your own tiers, e.g. `200:3.0, 400:4.1584, 4.3583` (cumulative upper limit in kWh : rate per kWh; the last tier is open-ended) plus a per-kWh adder, a fixed monthly charge and a tax percentage. |
+
+- **Billing day**: set the day of month for 30-day months / 31-day months / February (use the same day in all three for a fixed day). Once set you get **Next Billing Day** and **Forecast Bill** sensors. Leave empty to disable them.
+- **Currency**: monetary sensors use the currency configured in Home Assistant (Settings > System > General).
+- **Budget**: set `budget_threshold` and the event `electricity_bill_budget_exceeded` is fired once per cycle when the estimated bill reaches it (data: `threshold`, `bill_estimate`, `cycle_kwh`, `cycle_start`).
+- **Billing-day event**: at 12:00 on the billing day the event `electricity_bill_cutoff_day` is fired (data: `cutoff_date`, `cycle_kwh`, `bill_estimate`, `forecast_bill`).
+
+Example automation using the event (replace `notify.mobile_app_xxx` with your notifier):
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: electricity_bill_cutoff_day
+actions:
+  - action: notify.mobile_app_xxx
+    data:
+      message: >-
+        Billing day: {{ trigger.event.data.cycle_kwh | round(1) }} kWh used,
+        about {{ trigger.event.data.bill_estimate }} so far
+```
+
+> The built-in Thai tariff follows the announced PEA/MEA rates of September 2026. If rates change, use the `custom` profile right away without waiting for a new release.
 
 ---
 

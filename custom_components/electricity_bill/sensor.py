@@ -118,6 +118,32 @@ SENSOR_DESCRIPTIONS: tuple[ElectricityBillSensorEntityDescription, ...] = (
         },
     ),
     ElectricityBillSensorEntityDescription(
+        key="cycle_bill_estimate",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement=CURRENCY_THB,
+        suggested_display_precision=2,
+        value_fn=lambda data: (data.get("cycle_bill_estimate") or {}).get("total"),
+        attr_fn=lambda data: dict(data.get("cycle_bill_estimate") or {}),
+    ),
+    ElectricityBillSensorEntityDescription(
+        key="forecast_bill",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement=CURRENCY_THB,
+        suggested_display_precision=2,
+        value_fn=lambda data: ((data.get("forecast") or {}).get("bill") or {}).get("total"),
+        attr_fn=lambda data: {
+            "forecast_kwh": (data.get("forecast") or {}).get("kwh"),
+            "kwh_per_day": (data.get("forecast") or {}).get("kwh_per_day"),
+            "cycle_days": (data.get("forecast") or {}).get("days"),
+            "cutoff_date": data["next_cutoff"].isoformat() if data.get("next_cutoff") else None,
+        },
+    ),
+    ElectricityBillSensorEntityDescription(
+        key="next_cutoff_date",
+        device_class=SensorDeviceClass.DATE,
+        value_fn=lambda data: data.get("next_cutoff"),
+    ),
+    ElectricityBillSensorEntityDescription(
         key="last_bill_amount",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_THB,
@@ -188,6 +214,15 @@ class ElectricityBillSensor(CoordinatorEntity[ElectricityBillCoordinator], Senso
         self._attr_has_entity_name = True
         self._attr_translation_key = description.key
         self._attr_device_info = coordinator.device_info
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        """Monetary sensors follow the currency configured in Home Assistant."""
+        unit = self.entity_description.native_unit_of_measurement
+        if self.entity_description.device_class == SensorDeviceClass.MONETARY and unit:
+            currency = getattr(self.hass.config, "currency", None) or CURRENCY_THB
+            return f"{currency}/kWh" if str(unit).endswith("/kWh") else currency
+        return unit
 
     @property
     def native_value(self) -> Any:

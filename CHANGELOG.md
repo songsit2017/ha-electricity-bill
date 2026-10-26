@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.9.0
+- Panel: "Energy by device" card (stacked bar + list with kWh, estimated cost and share per sub-meter, plus the unmetered rest) and "Daily usage" card (kWh per day for the current cycle from the recorder's daily statistics, with the average line). Panel-only change: no Home Assistant restart needed after the update (from 0.8.2 on).
+
 ## 0.8.2
 - The panel files are now served with `Cache-Control: no-cache` and an ETag, so a panel-only change shows after a page refresh and does not need a Home Assistant restart (code changes in the Python files still do).
 

@@ -22,6 +22,7 @@ A Home Assistant custom integration that records your monthly electricity bill (
 - **Tariff profiles (v0.6)**: choose "none" (default, works anywhere), "Thailand residential" or "custom" to estimate the full bill from tiers + a per-kWh adder (e.g. Ft) + fixed monthly charge + tax, and forecast it to the billing day (see "Tariff and forecast").
 - **"ค่าไฟ" panel (v0.7)**: bill chart (amount and kWh for the last 12 bills), edit a saved bill (Edit button in the history rows; the period end date cannot be changed), CSV export of the history, usable on a phone.
 - **Thai and English UI** . The "ค่าไฟ" panel follows the Home Assistant language (Thai / English; other languages show English) and the currency set in HA. Add a language in the `I18N` object of `frontend/panel.js`.
+- **Energy by device and daily usage (v0.9)**: a card splitting this cycle's energy between the sub-meters and the unmetered rest with an estimated cost, and a daily kWh bar chart for the cycle (from HA long-term statistics).
 - **New look (v0.8)**: summary card with a billing-cycle progress ring, gradient bar chart with a smooth kWh curve and animations, colour-coded tiles.
 
 ---

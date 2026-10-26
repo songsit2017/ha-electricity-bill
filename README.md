@@ -1,5 +1,7 @@
 # Electricity Bill (ระบบติดตามบิลค่าไฟสำหรับ Home Assistant)
 
+**ภาษาไทย** | [English](README.en.md)
+
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/default)
 
 Home Assistant custom integration สำหรับบันทึกบิลค่าไฟฟ้าประจำเดือน (จำนวนหน่วย kWh + ยอดเงินบาท + วันสิ้นสุดรอบบิล) เพื่อคำนวณ**อัตราค่าไฟจริงต่อหน่วย (Real Effective Rate)** และประมาณการค่าไฟฟ้าของรอบบิลปัจจุบันแบบเรียลไทม์
@@ -13,6 +15,9 @@ Home Assistant custom integration สำหรับบันทึกบิล�
 - **ประมาณการค่าไฟรอบปัจจุบัน (Running Cycle Estimate)**: คำนวณพลังงานสะสมตั้งแต่เริ่มรอบใหม่คูณด้วยอัตราค่าไฟจริง
 - **ดึงสถิติย้อนหลังอัตโนมัติ (Long-term Statistics)**: หากใส่วันสิ้นสุดรอบบิลย้อนหลัง ระบบจะดึงค่ามิเตอร์ ณ สิ้นวันนั้นจาก HA Recorder Long-term Statistics อัตโนมัติ
 - **ป้องกันปัญหามิเตอร์รีเซ็ต (Meter Reset Handling)**: หากอุปกรณ์สมาร์ทปลั๊กหรือมิเตอร์ถูกรีเซ็ตค่าเป็น 0 จะไม่ทำให้เกิดค่าติดลบ
+- **รายละเอียดบิล (v0.3+)**: บันทึกวันเริ่มรอบ ค่าไฟฟ้าฐาน Ft ค่าบริการ VAT พร้อมสถิติต่อวันและเปลี่ยนแปลงจากบิลก่อน (ดูหัวข้อ "รายละเอียดบิล")
+- **หน้าจอ "ค่าไฟ" ในแถบเมนูข้าง**: กรอกบิลเอง หรือถ่ายรูป/อัปโหลดบิลให้ AI Task (เช่น Anthropic) อ่านค่าให้ (ไม่บังคับ)
+- **ตั้งจุดเริ่มนับเองได้ (v0.3.1)**: บริการ `set_baseline` สำหรับเซ็นเซอร์ที่เพิ่งเพิ่ม เช่น เบรกเกอร์วัดไฟรวมทั้งบ้าน
 - **รองรับ 2 ภาษา**: รองรับภาษาไทย (TH) และภาษาอังกฤษ (EN) เต็มรูปแบบ
 
 ---
@@ -37,7 +42,11 @@ Home Assistant custom integration สำหรับบันทึกบิล�
    - **Name**: ชื่อของอุปกรณ์ (ค่าเริ่มต้น: `Electricity Bill`)
    - **Source Energy Sensors**: เลือกเซ็นเซอร์วัดพลังงาน (kWh) ที่ต้องการติดตาม (เช่น `sensor.aircon_bedroom_kwh`, `sensor.pc_kwh`, `sensor.water_pump_kwh` ฯลฯ)
    - **Fallback Rate**: อัตราค่าไฟสำรองก่อนมีบิลแรก (ค่าเริ่มต้น: `4.40` บาท/kWh)
+   - **AI Task Entity** (ไม่บังคับ): เอนทิตี `ai_task.*` สำหรับอ่านบิลจากรูปภาพ
+
 4. สามารถปรับเปลี่ยนรายการเซ็นเซอร์และ Fallback Rate ภายหลังได้ตลอดเวลาผ่านปุ่ม **Configure (กำหนดค่า)**
+
+> **ใช้เซ็นเซอร์วัดไฟรวมทั้งบ้านหรือมิเตอร์ย่อย?** ระบบรวมหน่วยของทุก Source เข้าด้วยกัน ถ้ามีมิเตอร์/เบรกเกอร์วัดไฟรวมทั้งบ้านอยู่แล้ว (เช่น Tuya Local Main Breaker) ให้เลือกเป็น Source เพียงตัวเดียว ถ้าเลือกทั้งตัวรวมและมิเตอร์ย่อย หน่วยจะถูกนับซ้ำ ส่วนมิเตอร์ย่อยยังใช้ในแดชบอร์ดของ Home Assistant แยกต่างหากได้ตามปกติ
 
 ---
 
@@ -47,12 +56,12 @@ Home Assistant custom integration สำหรับบันทึกบิล�
 
 | Entity ID | ชื่อเซ็นเซอร์ | หน่วย | คำอธิบาย | Attributes สำคัญ |
 |---|---|---|---|---|
-| `sensor.electricity_bill_cycle_kwh` | Cycle Energy | kWh | พลังงานที่ใช้ในรอบบิลปัจจุบัน | `per_source`, `cycle_start`, `days_in_cycle` |
+| `sensor.electricity_bill_cycle_energy` | Cycle Energy | kWh | พลังงานที่ใช้ในรอบบิลปัจจุบัน | `per_source`, `cycle_start`, `days_in_cycle` |
 | `sensor.electricity_bill_effective_rate` | Effective Rate | THB/kWh | อัตราค่าไฟจริงต่อหน่วยจากบิลล่าสุด | `source` ("bill"/"fallback"), `based_on_period_end` |
 | `sensor.electricity_bill_cycle_cost_estimate` | Cycle Cost Estimate | THB | ประมาณการค่าไฟรอบปัจจุบัน (`cycle_kwh * rate`) | `rate_used` |
 | `sensor.electricity_bill_last_bill_amount` | Last Bill Amount | THB | ยอดเงินรวมของบิลล่าสุด | `period_start`, `period_end`, `kwh`, `rate`, `note` |
-| `sensor.electricity_bill_last_bill_kwh` | Last Bill Energy | kWh | จำนวนหน่วยไฟของบิลล่าสุด | `period_end` |
-| `sensor.electricity_bill_last_bill_unmetered_kwh` | Last Bill Unmetered Energy | kWh | หน่วยไฟที่ไม่ได้ติดมิเตอร์ (`bill kwh - measured kwh`) | `measured_kwh`, `share_metered_percent` |
+| `sensor.electricity_bill_last_bill_energy` | Last Bill Energy | kWh | จำนวนหน่วยไฟของบิลล่าสุด | `period_end` |
+| `sensor.electricity_bill_last_bill_unmetered_energy` | Last Bill Unmetered Energy | kWh | หน่วยไฟที่ไม่ได้ติดมิเตอร์ (`bill kwh - measured kwh`) | `measured_kwh`, `share_metered_percent` |
 | `sensor.electricity_bill_bill_history` | Bill History | - | จำนวนบิลที่บันทึกไว้ในระบบ | `bills` (ประวัติบิลย้อนหลัง สูงสุด 24 บิล ล่าสุดก่อน) |
 
 ---
@@ -69,6 +78,7 @@ data:
   kwh: 312.0               # จำนวนหน่วยไฟรวมในบิล
   amount: 1385.12          # ยอดเงินรวมในบิล (บาท)
   note: "บิลรอบเดือนตุลาคม"   # บันทึกเพิ่มเติม (ไม่บังคับ)
+  # ฟิลด์รายละเอียด (period_start, energy_charge, ft_charge, service_charge, vat) ไม่บังคับ ดูหัวข้อ "รายละเอียดบิล"
   replace: false           # อนุญาตให้บันทึกทับหากมีวันสิ้นสุดรอบบิลซ้ำกัน
 ```
 
@@ -143,7 +153,7 @@ entities:
   - entity: sensor.electricity_bill_cycle_cost_estimate
     name: "ประมาณการค่าไฟรอบนี้"
     icon: mdi:cash-multiple
-  - entity: sensor.electricity_bill_cycle_kwh
+  - entity: sensor.electricity_bill_cycle_energy
     name: "หน่วยไฟที่ใช้ไปรอบนี้"
     icon: mdi:lightning-bolt
   - entity: sensor.electricity_bill_effective_rate
@@ -153,10 +163,10 @@ entities:
   - entity: sensor.electricity_bill_last_bill_amount
     name: "ยอดบิลล่าสุด"
     icon: mdi:receipt-text
-  - entity: sensor.electricity_bill_last_bill_kwh
+  - entity: sensor.electricity_bill_last_bill_energy
     name: "หน่วยไฟบิลล่าสุด"
     icon: mdi:counter
-  - entity: sensor.electricity_bill_last_bill_unmetered_kwh
+  - entity: sensor.electricity_bill_last_bill_unmetered_energy
     name: "ไฟส่วนที่ไม่ได้ติดมิเตอร์"
     icon: mdi:help-circle-outline
 ```
@@ -191,7 +201,7 @@ tap_action:
    - กดยืนยัน ระบบจะคำนวณอัตราค่าไฟจริงต่อหน่วยทันที และตั้งรอบใหม่ให้อัตโนมัติ
 2. **การติดตามระหว่างเดือน**:
    - ตรวจสอบ `sensor.electricity_bill_cycle_cost_estimate` เพื่อดูว่าค่าไฟในรอบปัจจุบันใช้ไปกี่บาทแล้ว
-   - ตรวจสอบ `sensor.electricity_bill_last_bill_unmetered_kwh` เพื่อดูว่ามีไฟฟ้าในบ้านส่วนใดที่ยังไม่ได้ติดตั้งมิเตอร์วัดพลังงาน
+   - ตรวจสอบ `sensor.electricity_bill_last_bill_unmetered_energy` เพื่อดูว่ามีไฟฟ้าในบ้านส่วนใดที่ยังไม่ได้ติดตั้งมิเตอร์วัดพลังงาน
 
 ---
 
@@ -227,7 +237,7 @@ tap_action:
 - **บันทึกบิลซ้ำวันเดิม**:
   หากมีบิลในวันที่สิ้นสุดรอบบิลนั้นอยู่แล้ว ระบบจะถามยืนยันการแทนที่ข้อมูลเดิม ("มีบิลวันที่นี้แล้ว แทนที่ไหม?") หากกดยืนยันจะบันทึกทับข้อมูลบิลเดิม
 
-## รายละเอียดบิล (v0.3.0)
+## รายละเอียดบิล (v0.3.0+)
 
 `electricity_bill.add_bill` รับค่าเพิ่มได้ (ไม่บังคับ): `period_start`, `energy_charge` (ค่าไฟฟ้าฐาน), `ft_charge` (Ft, ติดลบได้), `service_charge` (ค่าบริการ), `vat`.
 ประวัติบิล (`sensor.electricity_bill_bill_history`, attribute `bills`) คำนวณให้เพิ่ม: `days`, `kwh_per_day`, `baht_per_day`, `kwh_change_pct`, `amount_change_pct` (เทียบบิลก่อนหน้า) และ `items_mismatch` เมื่อผลรวมรายการไม่ตรงยอดรวม

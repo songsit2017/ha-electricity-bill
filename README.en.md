@@ -20,7 +20,8 @@ A Home Assistant custom integration that records your monthly electricity bill (
 - **Set the starting point yourself (v0.3.1)**: the `set_baseline` service (and the "Advanced" card in the panel, v0.5), for newly added sensors such as a whole-house breaker.
 - **Whole-house main meter (v0.5)**: one main meter drives the cycle energy and cost, sub-meters give the per-device breakdown, a live "unmetered this cycle" sensor, and an optional reset button that is pressed automatically after you record a bill.
 - **Tariff profiles (v0.6)**: choose "none" (default, works anywhere), "Thailand residential" or "custom" to estimate the full bill from tiers + a per-kWh adder (e.g. Ft) + fixed monthly charge + tax, and forecast it to the billing day (see "Tariff and forecast").
-- **Thai and English UI**.
+- **"ค่าไฟ" panel (v0.7)**: bill chart (amount and kWh for the last 12 bills), edit a saved bill (Edit button in the history rows; the period end date cannot be changed), CSV export of the history, usable on a phone.
+- **Thai and English UI** (the "ค่าไฟ" panel itself is Thai only).
 
 ---
 

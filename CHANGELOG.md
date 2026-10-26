@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.0
+- Panel: bill trend chart (amount bars + kWh line, last 12 bills), edit a saved bill in place (period end fixed; saved with replace), CSV export of the bill history (UTF-8 with BOM for Excel).
+- Panel texts remain Thai only.
+
 ## 0.6.1
 - Fix: the second options page ("Tariff, billing day and budget") failed to open with "Unknown error occurred" because the Ft field used a number step (0.0001) below Home Assistant's minimum (0.001); it now uses a free step.
 - Docs: the billing-day sensor entity id is `sensor.electricity_bill_next_billing_day` (README said `next_cutoff_date`).

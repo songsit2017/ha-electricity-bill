@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.8.1
+- Fix: the sidebar panel kept showing the old page after an update because browsers cached `panel.js`; the panel URL now carries the integration version (`panel.js?v=<version>`). After updating to 0.8.1 restart HA once and reload the page; later updates need no manual cache clearing.
+
 ## 0.8.0
 - Panel i18n: Thai and English follow the Home Assistant language; numbers, dates and the currency symbol follow the HA locale and currency. New languages are added in the `I18N` object.
 - Panel redesign: hero card with billing-cycle progress ring, gradient bar chart with grid, smooth kWh curve and entrance animations, colour-coded tiles, softer cards, reduced-motion support.

@@ -5,6 +5,8 @@ dependencies, allowing it to be tested in any standard Python environment.
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 from datetime import date, datetime, timedelta
 import math
 import re
@@ -43,12 +45,19 @@ def calculate_source_delta(current: float, baseline: float) -> float:
 def calculate_snapshot_delta(
     current_snapshot: dict[str, float],
     previous_snapshot: dict[str, float] | None,
+    only: Iterable[str] | None = None,
 ) -> tuple[float, dict[str, float]]:
     """Calculate measured kWh across sources between two snapshots.
 
     Returns (total_measured_kwh, per_source_delta).
     If previous_snapshot is None, returns 0.0 total.
+    If ``only`` is given, only those sources are summed into the total; every
+    source still appears in the per-source dict (used when a whole-house main
+    meter is the total and the other sources are sub-meters for breakdown).
+    A baseline may be negative: it carries energy that was used before the
+    counter was reset to 0.
     """
+    only_set = set(only) if only is not None else None
     if previous_snapshot is None:
         per_source = {s: 0.0 for s in current_snapshot}
         return 0.0, per_source
@@ -60,7 +69,8 @@ def calculate_snapshot_delta(
         prev_val = previous_snapshot.get(source, 0.0)
         delta = calculate_source_delta(curr_val, prev_val)
         per_source[source] = delta
-        total += delta
+        if only_set is None or source in only_set:
+            total += delta
 
     return round(total, 4), per_source
 
@@ -68,12 +78,28 @@ def calculate_snapshot_delta(
 def calculate_cycle_kwh(
     current_states: dict[str, float],
     cycle_snapshot: dict[str, float],
+    only: Iterable[str] | None = None,
 ) -> tuple[float, dict[str, float]]:
     """Calculate consumption in the current cycle from baseline snapshot to current states.
 
-    Returns (total_cycle_kwh, per_source_dict).
+    Returns (total_cycle_kwh, per_source_dict). ``only`` limits the total to the
+    given sources (see calculate_snapshot_delta).
     """
-    return calculate_snapshot_delta(current_states, cycle_snapshot)
+    return calculate_snapshot_delta(current_states, cycle_snapshot, only=only)
+
+
+def calculate_cycle_unmetered_kwh(
+    main_kwh: float,
+    per_source: dict[str, float],
+    main_meter: str,
+) -> tuple[float, float]:
+    """Return (submetered_kwh, unmetered_kwh) for a cycle with a main meter.
+
+    submetered = sum of every other source's cycle energy;
+    unmetered = main - submetered, never negative.
+    """
+    sub_total = round(sum(v for k, v in per_source.items() if k != main_meter), 4)
+    return sub_total, round(max(0.0, float(main_kwh) - sub_total), 4)
 
 
 def calculate_cycle_cost(cycle_kwh: float, effective_rate: float) -> float:
@@ -253,7 +279,10 @@ def items_sum_mismatch(
         return False
 
 
-def recompute_bills(bills: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def recompute_bills(
+    bills: list[dict[str, Any]],
+    only: Iterable[str] | None = None,
+) -> list[dict[str, Any]]:
     """Sort bills chronologically by period_end and recompute period_start and measured_kwh.
 
     Returns a new list of updated bill dictionaries.
@@ -270,6 +299,7 @@ def recompute_bills(bills: list[dict[str, Any]]) -> list[dict[str, Any]]:
             delta, _ = calculate_snapshot_delta(
                 bill.get("snapshot", {}),
                 prev_bill.get("snapshot", {}),
+                only=only,
             )
             bill["measured_kwh"] = delta
 
@@ -308,6 +338,7 @@ def add_bill_record(
     bills: list[dict[str, Any]],
     new_bill: dict[str, Any],
     replace: bool = False,
+    only: Iterable[str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Add or replace a bill in the list, keeping it sorted and recomputing deltas.
 
@@ -335,7 +366,7 @@ def add_bill_record(
     else:
         new_list.append(bill_to_insert)
 
-    recomputed = recompute_bills(new_list)
+    recomputed = recompute_bills(new_list, only=only)
     _, added = find_bill(recomputed, period_end=period_end)
     if added is None:
         added = bill_to_insert
@@ -347,6 +378,7 @@ def remove_bill_record(
     bills: list[dict[str, Any]],
     bill_id: str | None = None,
     period_end: str | None = None,
+    only: Iterable[str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, float] | None]:
     """Remove a bill by id or period_end.
 
@@ -368,7 +400,7 @@ def remove_bill_record(
 
     was_latest = idx == len(sorted_bills) - 1
     removed = sorted_bills.pop(idx)
-    remaining = recompute_bills(sorted_bills)
+    remaining = recompute_bills(sorted_bills, only=only)
 
     restored_snapshot: dict[str, float] | None = None
     if was_latest:

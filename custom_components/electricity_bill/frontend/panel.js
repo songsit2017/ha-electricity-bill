@@ -565,8 +565,31 @@ class ElectricityBillPanel extends HTMLElement {
       this._history
     );
 
+    // advanced: set a source's cycle baseline
+    this._baseSel = el("select", {});
+    this._baseVal = el("input", { type: "number", step: "any", min: "0", inputmode: "decimal", placeholder: "0", value: "0" });
+    this._baseBtn = el("button", { class: "btn ghost block", onclick: () => this._onSetBaseline() }, icon("mdi:flag-checkered"), "ตั้งจุดเริ่มนับ");
+    this._baseArmed = false;
+    const baseCard = el(
+      "div",
+      { class: "card" },
+      el(
+        "details",
+        { class: "details-box" },
+        el("summary", {}, icon("mdi:tune"), "ขั้นสูง: ตั้งจุดเริ่มนับของมิเตอร์"),
+        el(
+          "div",
+          { class: "details-body" },
+          el("p", { class: "hint", text: "หน่วยรอบนี้ = ค่ามิเตอร์ปัจจุบัน − จุดเริ่มนับ ใส่ 0 ถ้าตัวนับเพิ่งเริ่มนับจาก 0 และอยากให้ยอดสะสมทั้งหมดเป็นของรอบนี้" }),
+          field("มิเตอร์", this._baseSel, null),
+          field("ค่าจุดเริ่มนับ", this._baseVal, "kWh"),
+          this._baseBtn
+        )
+      )
+    );
+
     this._toast = el("div", { class: "toast" });
-    root.append(el("div", { class: "page" }, hero, this._tiles, el("div", { class: "grid" }, addCard, histCard)), this._toast);
+    root.append(el("div", { class: "page" }, hero, this._tiles, el("div", { class: "grid" }, addCard, histCard), baseCard), this._toast);
   }
 
   /* ------------------------------ state ------------------------------ */
@@ -584,6 +607,7 @@ class ElectricityBillPanel extends HTMLElement {
       "sensor.electricity_bill_last_bill_amount",
       "sensor.electricity_bill_last_bill_energy",
       "sensor.electricity_bill_last_bill_unmetered_energy",
+      "sensor.electricity_bill_cycle_unmetered_energy",
       "sensor.electricity_bill_bill_history",
     ];
     const sig =
@@ -603,7 +627,51 @@ class ElectricityBillPanel extends HTMLElement {
     this._renderHistory();
   }
 
+  _renderBaselineOptions() {
+    const cycle = this._hass.states["sensor.electricity_bill_cycle_energy"];
+    const ids = Object.keys((cycle && cycle.attributes && cycle.attributes.per_source) || {});
+    const key = ids.join(",");
+    if (key === this._baseKey) return;
+    this._baseKey = key;
+    const prev = this._baseSel.value;
+    this._baseSel.replaceChildren(
+      ...ids.map((id) => {
+        const fs = this._hass.states[id];
+        return el("option", { value: id, text: ((fs && fs.attributes.friendly_name) || id) + " (" + id + ")" });
+      })
+    );
+    if (ids.includes(prev)) this._baseSel.value = prev;
+  }
+
+  async _onSetBaseline() {
+    const entity = this._baseSel.value;
+    if (!entity) return;
+    if (!this._baseArmed) {
+      this._baseArmed = true;
+      this._baseBtn.textContent = "กดอีกครั้งเพื่อยืนยัน";
+      clearTimeout(this._baseTimer);
+      this._baseTimer = setTimeout(() => {
+        this._baseArmed = false;
+        this._baseBtn.replaceChildren(icon("mdi:flag-checkered"), "ตั้งจุดเริ่มนับ");
+      }, 3000);
+      return;
+    }
+    clearTimeout(this._baseTimer);
+    this._baseArmed = false;
+    this._baseBtn.replaceChildren(icon("mdi:flag-checkered"), "ตั้งจุดเริ่มนับ");
+    const value = this._baseVal.value === "" ? 0 : Number(this._baseVal.value);
+    try {
+      await this._hass.callService("electricity_bill", "set_baseline", { entity_id: entity, value });
+      this._toastMsg("ตั้งจุดเริ่มนับแล้ว", false);
+    } catch (err) {
+      this._toastMsg("ตั้งไม่สำเร็จ: " + ((err && err.message) || err), true);
+    }
+    this._sig = "";
+    this._refresh();
+  }
+
   _renderStatus() {
+    this._renderBaselineOptions();
     const rate = this._st("sensor.electricity_bill_effective_rate");
     const cyc = this._st("sensor.electricity_bill_cycle_energy");
     const cost = this._st("sensor.electricity_bill_cycle_cost_estimate");
@@ -643,7 +711,12 @@ class ElectricityBillPanel extends HTMLElement {
           el("div", { class: "tile-value" }, value === null ? "–" : value, value !== null && unit ? el("small", { text: unit }) : null)
         )
       );
+    const cycUnm = this._st("sensor.electricity_bill_cycle_unmetered_energy");
+    const cycleUnmTile = this._hass.states["sensor.electricity_bill_cycle_unmetered_energy"]
+      ? [tile("mdi:home-lightning-bolt-outline", "ไฟรอบนี้ที่ไม่มีมิเตอร์ย่อย", cycUnm ? num(cycUnm.state, 1) : null, "kWh")]
+      : [];
     this._tiles.replaceChildren(
+      ...cycleUnmTile,
       tile("mdi:receipt-text", "ยอดบิลล่าสุด", lastAmt ? num(lastAmt.state, 2) : null, "บาท"),
       tile("mdi:lightning-bolt", "หน่วยตามบิลล่าสุด", lastKwh ? num(lastKwh.state, 1) : null, "kWh"),
       tile(

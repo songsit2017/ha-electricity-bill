@@ -17,7 +17,8 @@ A Home Assistant custom integration that records your monthly electricity bill (
 - **Meter reset handling**: if a smart plug or meter is reset to 0, the cycle energy never goes negative.
 - **Bill details (v0.3+)**: period start, base energy charge, Ft, service charge and VAT, plus per-day figures and change versus the previous bill (see "Bill details").
 - **"ค่าไฟ" sidebar panel**: enter a bill by hand, or photograph/upload it and let an AI Task (e.g. Anthropic) read the values (optional).
-- **Set the starting point yourself (v0.3.1)**: the `set_baseline` service, for newly added sensors such as a whole-house breaker.
+- **Set the starting point yourself (v0.3.1)**: the `set_baseline` service (and the "Advanced" card in the panel, v0.5), for newly added sensors such as a whole-house breaker.
+- **Whole-house main meter (v0.5)**: one main meter drives the cycle energy and cost, sub-meters give the per-device breakdown, a live "unmetered this cycle" sensor, and an optional reset button that is pressed automatically after you record a bill.
 - **Thai and English UI**.
 
 ---
@@ -45,7 +46,11 @@ When a new version is published as a GitHub Release, HACS shows it on the Update
    - **AI Task Entity** (optional): an `ai_task.*` entity used to read bills from a photo.
 4. You can change the sensor list and fallback rate at any time with **Configure**.
 
-> **Whole-house sensor or sub-meters?** The integration adds up the energy of every source. If you already have a meter/breaker that measures the whole house (for example a Tuya Local main breaker), select it as the **only** source. Selecting both the whole-house meter and the sub-meters counts the energy twice. Sub-meters can still be used separately in Home Assistant dashboards as usual.
+> **Do you have a whole-house meter/breaker (v0.5)?** In **Configure** set it as the **Main meter** and put your sub-meters (aircon, pump, ...) in Source Energy Sensors:
+> - Cycle energy and cost come from the main meter only; sub-meters are never double counted and are used for the breakdown.
+> - You get `sensor.electricity_bill_cycle_unmetered_energy` = main meter energy minus the sum of the sub-meters this cycle (never negative).
+> - **Main meter reset button** (optional, e.g. `button.main_breaker_energy_reset`): when you record a bill that is newer than the previous one the button is pressed once, and the energy used between the bill's period end and the reset is carried into the new cycle.
+> - Without a main meter nothing changes (all sources are summed). Do not select a whole-house meter and its sub-meters as plain sources together, the energy would be counted twice.
 
 ---
 
@@ -56,6 +61,7 @@ All sensors belong to the **Electricity Bill** device:
 | Entity ID | Name | Unit | Description | Key attributes |
 |---|---|---|---|---|
 | `sensor.electricity_bill_cycle_energy` | Cycle Energy | kWh | Energy used in the current billing cycle | `per_source`, `cycle_start`, `days_in_cycle` |
+| `sensor.electricity_bill_cycle_unmetered_energy` | Cycle Unmetered Energy | kWh | Energy this cycle not covered by sub-meters (main − sub-meters); only created when a main meter is set | `main_meter`, `submetered_kwh` |
 | `sensor.electricity_bill_effective_rate` | Effective Rate | THB/kWh | Real rate per unit from the latest bill | `source` ("bill"/"fallback"), `based_on_period_end` |
 | `sensor.electricity_bill_cycle_cost_estimate` | Cycle Cost Estimate | THB | Estimated cost of the current cycle (`cycle energy * rate`) | `rate_used` |
 | `sensor.electricity_bill_last_bill_amount` | Last Bill Amount | THB | Total amount of the latest bill | `period_start`, `period_end`, `kwh`, `rate`, `note` |

@@ -22,16 +22,23 @@
     "step": {
       "init": {
         "title": "Electricity Bill Options",
-        "description": "Update energy sensors and fallback rate.",
+        "description": "Update the main meter, energy sensors and fallback rate.",
         "data": {
-          "sources": "Source Energy Sensors",
+          "main_meter": "Main (whole-house) meter (optional)",
+          "reset_button": "Main meter reset button (optional)",
+          "sources": "Source Energy Sensors (sub-meters when a main meter is set)",
           "fallback_rate": "Fallback Rate (THB/kWh)",
           "ai_task_entity": "AI Task Entity (Optional)"
+        },
+        "data_description": {
+          "main_meter": "Whole-house energy sensor. When set, cycle energy and cost use this meter only and the sources below are only a breakdown.",
+          "reset_button": "Button pressed automatically after you add a newer bill (e.g. the breaker Energy reset). Energy used since the bill date is kept.",
+          "sources": "Sub-meters for the breakdown. Leave empty if you only have a main meter."
         }
       }
     },
     "error": {
-      "no_sources": "Please select at least one energy sensor."
+      "no_sources": "Select a main meter or at least one energy sensor."
     }
   },
   "entity": {
@@ -56,6 +63,9 @@
       },
       "bill_history": {
         "name": "Bill History"
+      },
+      "cycle_unmetered_kwh": {
+        "name": "Cycle Unmetered Energy"
       }
     }
   },

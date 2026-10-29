@@ -1097,3 +1097,49 @@ def test_format_weekly_summary():
     assert "เทียบสัปดาห์ก่อน +8.0%" in th
     assert "วันที่ใช้มากสุด: 27/10 (15.2 kWh)" in th
     assert "คาดการณ์" not in th
+
+
+# ---------------------------------------------------------------- phase 10/11
+def test_format_cycle_summary_with_reminder():
+    d = {
+        "currency": "฿", "rate": 4.48, "start": "2026-10-25", "end": "2026-11-24", "days": 30,
+        "cycle_kwh": 512.3, "cycle_bill": 2201.0, "avg_kwh": 17.1, "devices": [("แอร์ห้องนอน", 160.0)],
+        "last_bill_kwh": 862, "last_bill_amount": 3862.41, "forecast_bill": None,
+        "next_cutoff": "2026-11-24", "reminder": True,
+    }
+    th = calc.format_summary("cycle", "th", d)
+    assert th.startswith("🧾 สรุปรอบบิล (25/10 – 24/11, 30 วัน)")
+    assert "512.3 kWh" in th and "฿2,201" in th and "แอร์ห้องนอน 160.0 kWh" in th
+    assert "บิลก่อน: 862 kWh · ฿3,862" in th
+    assert "อย่าลืมบันทึกบิล" in th
+    en = calc.format_summary("cycle", "en", dict(d, reminder=False))
+    assert "Billing cycle summary" in en and "remember" not in en
+
+
+def test_history_from_daily_changes_uses_total_sources():
+    changes = {
+        "2026-10-27": {"main": 18.0, "ac": 9.0, "pc": 1.0},
+        "2026-10-26": {"main": 12.5, "ac": 6.0},
+        "2026-10-25": {"ac": 3.0},  # no main meter data that day -> skipped
+    }
+    out = calc.history_from_daily_changes(changes, ["main"])
+    assert [e["date"] for e in out] == ["2026-10-26", "2026-10-27"]
+    assert out[1]["kwh"] == 18.0 and out[1]["per_source"]["ac"] == 9.0
+    out_all = calc.history_from_daily_changes(changes, ["ac", "pc"])
+    assert out_all[-1]["kwh"] == 10.0
+
+
+def test_merge_history_keeps_existing_days():
+    history = [{"date": "2026-10-27", "kwh": 19.6, "per_source": {}}]
+    extra = [{"date": "2026-10-26", "kwh": 12.5, "per_source": {}}, {"date": "2026-10-27", "kwh": 99.0, "per_source": {}}]
+    out = calc.merge_history(history, extra, max_days=70)
+    assert [h["date"] for h in out] == ["2026-10-26", "2026-10-27"]
+    assert out[1]["kwh"] == 19.6
+    assert len(calc.merge_history([], [{"date": f"2026-10-{d:02d}", "kwh": 1} for d in range(1, 11)], max_days=3)) == 3
+
+
+def test_implied_ft_rate():
+    assert calc.implied_ft_rate({"ft_charge": 139.90, "kwh": 862}) == 0.1623
+    assert calc.implied_ft_rate({"ft_charge": None, "kwh": 862}) is None
+    assert calc.implied_ft_rate({"ft_charge": 10, "kwh": 0}) is None
+    assert calc.implied_ft_rate(None) is None

@@ -95,3 +95,15 @@ set_baseline:
           max: 10000000
           step: 0.001
           mode: box
+
+get_summary:
+  fields:
+    kind:
+      required: false
+      default: daily
+      selector:
+        select:
+          options:
+            - daily
+            - weekly
+            - cycle

@@ -161,6 +161,35 @@ actions:
       target: -1001234567890
       message: "{{ trigger.event.data.message }}"
 ```
+- **ดึงสรุปได้ทุกเมื่อ (v0.13)**: บริการ `electricity_bill.get_summary` (`kind`: `daily`, `weekly`, `cycle`) ส่งคืนข้อมูลพร้อม `message` ใช้กับ `response_variable` เช่น ตอบคำสั่งใน Telegram ส่วนอีเวนต์ `electricity_bill_cutoff_day` (12:00 วันตัดรอบ) มี `message` สรุปทั้งรอบพร้อมเตือนให้บันทึกบิล
+
+ตัวอย่างตอบคำสั่ง `/power` และ `/week` ใน Telegram:
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: telegram_command
+    event_data:
+      command: /power
+    id: daily
+  - trigger: event
+    event_type: telegram_command
+    event_data:
+      command: /week
+    id: weekly
+actions:
+  - action: electricity_bill.get_summary
+    data:
+      kind: "{{ trigger.id }}"
+    response_variable: summary
+  - action: telegram_bot.send_message
+    data:
+      config_entry_id: "<telegram config entry id>"
+      target: "{{ trigger.event.data.chat_id }}"
+      message: "{{ summary.message }}"
+```
+
+- **ดูแลตัวเอง (v0.13)**: ปุ่ม "ดาวน์โหลดข้อมูลวินิจฉัย" ในหน้า integration และแจ้งเตือนในหน้า Repairs ของ HA เมื่อมิเตอร์หลักไม่ตอบสนองนานกว่า 1 ชั่วโมง หรือค่า Ft ในตั้งค่าไม่ตรงกับบิลล่าสุด ประวัติรายวันเติมย้อนหลังจากสถิติของ HA ได้สูงสุด 28 วัน สรุปรายสัปดาห์จึงครบตั้งแต่สัปดาห์แรก
 - **วันตัดรอบ**: เวลา 12:00 ของวันตัดรอบ ระบบส่งอีเวนต์ `electricity_bill_cutoff_day` (ข้อมูล: `cutoff_date`, `cycle_kwh`, `bill_estimate`, `forecast_bill`)
 
 ตัวอย่างออโตเมชันแจ้งเตือนจากอีเวนต์ (เปลี่ยน `notify.mobile_app_xxx` เป็นบริการแจ้งเตือนของคุณ):

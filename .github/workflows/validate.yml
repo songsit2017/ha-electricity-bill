@@ -36,4 +36,15 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install pytest
-      - run: python -m pytest -q tests
+      - run: python -m pytest -q tests --ignore=tests/ha
+
+  ha-tests:
+    name: HA tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -r tests/ha/requirements.txt
+      - run: python -m pytest -q tests/ha -o asyncio_mode=auto -o asyncio_default_fixture_loop_scope=function -p no:cacheprovider

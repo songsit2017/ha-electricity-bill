@@ -860,3 +860,166 @@ def roll_day(
             snapshot, stored_day.get("snapshot", {}), only=only
         )
     return {"date": today, "snapshot": snapshot}, yesterday_kwh, True
+
+
+
+# ---------------------------------------------------------------- summaries (Phase 9)
+def summarize_period(
+    history: list[dict[str, Any]],
+    today: date,
+    today_kwh: float | None,
+    today_per_source: dict[str, float] | None,
+    days: int = 7,
+) -> dict[str, Any]:
+    """Summarise the last ``days`` days ending today (today counted as it stands).
+
+    ``history`` holds finished days as {"date": ISO, "kwh": float, "per_source": {...}}.
+    Returns totals, average per known day, the peak day, per-source totals and the change
+    versus the previous ``days`` days (None unless both periods are complete).
+    """
+    start = today - timedelta(days=days - 1)
+    prev_start = start - timedelta(days=days)
+
+    def _d(item: dict[str, Any]) -> date | None:
+        try:
+            return date.fromisoformat(str(item.get("date")))
+        except ValueError:
+            return None
+
+    entries: list[tuple[str, float, dict[str, float]]] = []
+    prev_total = 0.0
+    prev_known = 0
+    for item in history:
+        d = _d(item)
+        if d is None:
+            continue
+        kwh = float(item.get("kwh") or 0.0)
+        if start <= d < today:
+            entries.append((d.isoformat(), kwh, dict(item.get("per_source") or {})))
+        elif prev_start <= d < start:
+            prev_total += kwh
+            prev_known += 1
+    entries.sort(key=lambda e: e[0])
+    if today_kwh is not None:
+        entries.append((today.isoformat(), float(today_kwh), dict(today_per_source or {})))
+
+    known = len(entries)
+    total = round(sum(e[1] for e in entries), 3)
+    per_source: dict[str, float] = {}
+    for _, _, per in entries:
+        for key, value in per.items():
+            per_source[key] = round(per_source.get(key, 0.0) + float(value), 3)
+    peak = max(entries, key=lambda e: e[1]) if entries else None
+    change_pct = None
+    if known >= days and prev_known >= days and prev_total > 0:
+        change_pct = round((total - prev_total) / prev_total * 100.0, 1)
+    return {
+        "start": start.isoformat(),
+        "end": today.isoformat(),
+        "known_days": known,
+        "kwh": total,
+        "avg_per_day": round(total / known, 3) if known else 0.0,
+        "peak": {"date": peak[0], "kwh": round(peak[1], 3)} if peak else None,
+        "per_source": per_source,
+        "change_pct": change_pct,
+    }
+
+
+_SUMMARY_TEXT = {
+    "th": {
+        "daily_title": "⚡ สรุปค่าไฟวันนี้ ({date})",
+        "weekly_title": "📊 สรุปค่าไฟรายสัปดาห์ ({start} – {end})",
+        "today": "ใช้ไป {kwh} kWh ≈ {cur}{cost}",
+        "yesterday": "เมื่อวาน {kwh} kWh",
+        "average": "เฉลี่ยรอบนี้ {kwh} kWh/วัน",
+        "cycle": "รอบบิลนี้: {kwh} kWh ≈ {cur}{cost}",
+        "forecast": "คาดการณ์ถึงวันตัดรอบ {cur}{cost}",
+        "devices_today": "ใช้มากสุดวันนี้: {items}",
+        "devices_week": "ใช้มากสุดสัปดาห์นี้: {items}",
+        "week_total": "รวม {kwh} kWh ≈ {cur}{cost} · เฉลี่ย {avg} kWh/วัน",
+        "week_days": "(มีข้อมูล {n} จาก 7 วัน)",
+        "change": "เทียบสัปดาห์ก่อน {pct}%",
+        "peak": "วันที่ใช้มากสุด: {date} ({kwh} kWh)",
+    },
+    "en": {
+        "daily_title": "⚡ Electricity today ({date})",
+        "weekly_title": "📊 Weekly electricity summary ({start} – {end})",
+        "today": "Used {kwh} kWh ≈ {cur}{cost}",
+        "yesterday": "yesterday {kwh} kWh",
+        "average": "cycle average {kwh} kWh/day",
+        "cycle": "This billing cycle: {kwh} kWh ≈ {cur}{cost}",
+        "forecast": "Forecast to the billing day {cur}{cost}",
+        "devices_today": "Top today: {items}",
+        "devices_week": "Top this week: {items}",
+        "week_total": "Total {kwh} kWh ≈ {cur}{cost} · avg {avg} kWh/day",
+        "week_days": "(data for {n} of 7 days)",
+        "change": "vs previous week {pct}%",
+        "peak": "Peak day: {date} ({kwh} kWh)",
+    },
+}
+
+
+def _fmt_num(value: float | None, digits: int = 1) -> str:
+    return f"{float(value):,.{digits}f}"
+
+
+def _fmt_dm(iso: str) -> str:
+    try:
+        d = date.fromisoformat(iso)
+        return f"{d.day}/{d.month}"
+    except ValueError:
+        return iso
+
+
+def _fmt_items(devices: list[tuple[str, float]], limit: int = 3) -> str:
+    return ", ".join(f"{name} {_fmt_num(kwh, 1)} kWh" for name, kwh in devices[:limit] if kwh > 0)
+
+
+def format_summary(kind: str, lang: str, d: dict[str, Any]) -> str:
+    """Build the text of a daily or weekly summary (Thai or English; other languages use English).
+
+    Keys used from ``d``: currency, rate, devices (list of (name, kwh), biggest first), cycle_kwh,
+    cycle_bill, forecast_bill, and for daily: date, today_kwh, yesterday_kwh, avg_kwh;
+    for weekly: start, end, kwh, avg_per_day, known_days, peak, change_pct.
+    """
+    text = _SUMMARY_TEXT.get(lang, _SUMMARY_TEXT["en"])
+    cur = d.get("currency", "")
+    rate = float(d.get("rate") or 0.0)
+    lines: list[str] = []
+    if kind == "daily":
+        lines.append(text["daily_title"].format(date=_fmt_dm(d["date"])))
+        today_kwh = float(d.get("today_kwh") or 0.0)
+        line = text["today"].format(kwh=_fmt_num(today_kwh, 1), cur=cur, cost=_fmt_num(today_kwh * rate, 0))
+        extras = []
+        if d.get("yesterday_kwh") is not None:
+            extras.append(text["yesterday"].format(kwh=_fmt_num(d["yesterday_kwh"], 1)))
+        if d.get("avg_kwh"):
+            extras.append(text["average"].format(kwh=_fmt_num(d["avg_kwh"], 1)))
+        if extras:
+            line += " (" + " · ".join(extras) + ")"
+        lines.append(line)
+        devices = _fmt_items(d.get("devices") or [])
+        if devices:
+            lines.append(text["devices_today"].format(items=devices))
+    else:
+        lines.append(text["weekly_title"].format(start=_fmt_dm(d["start"]), end=_fmt_dm(d["end"])))
+        kwh = float(d.get("kwh") or 0.0)
+        line = text["week_total"].format(
+            kwh=_fmt_num(kwh, 1), cur=cur, cost=_fmt_num(kwh * rate, 0), avg=_fmt_num(d.get("avg_per_day") or 0.0, 1)
+        )
+        if int(d.get("known_days") or 0) < 7:
+            line += " " + text["week_days"].format(n=int(d.get("known_days") or 0))
+        lines.append(line)
+        if d.get("change_pct") is not None:
+            pct = float(d["change_pct"])
+            lines.append(text["change"].format(pct=("+" if pct > 0 else "") + _fmt_num(pct, 1)))
+        if d.get("peak"):
+            lines.append(text["peak"].format(date=_fmt_dm(d["peak"]["date"]), kwh=_fmt_num(d["peak"]["kwh"], 1)))
+        devices = _fmt_items(d.get("devices") or [])
+        if devices:
+            lines.append(text["devices_week"].format(items=devices))
+    if d.get("cycle_kwh") is not None and d.get("cycle_bill") is not None:
+        lines.append(text["cycle"].format(kwh=_fmt_num(d["cycle_kwh"], 1), cur=cur, cost=_fmt_num(d["cycle_bill"], 0)))
+    if d.get("forecast_bill") is not None:
+        lines.append(text["forecast"].format(cur=cur, cost=_fmt_num(d["forecast_bill"], 0)))
+    return "\n".join(lines)

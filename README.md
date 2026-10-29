@@ -144,6 +144,23 @@ data:
 - **สกุลเงิน**: เซ็นเซอร์ที่เป็นเงินใช้สกุลเงินที่ตั้งใน Home Assistant (Settings > System > General)
 - **งบประมาณ**: ตั้ง `budget_threshold` แล้วระบบส่งอีเวนต์ `electricity_bill_budget_exceeded` หนึ่งครั้งต่อรอบเมื่อบิลโดยประมาณถึงจำนวนนั้น (ข้อมูล: `threshold`, `bill_estimate`, `cycle_kwh`, `cycle_start`)
 - **ใช้ไฟรายวันสูง**: ตั้ง `high_usage_factor` (เช่น 2 = สองเท่าของค่าเฉลี่ยรายวันของรอบ) แล้วระบบส่งอีเวนต์ `electricity_bill_high_usage` หนึ่งครั้งต่อวัน เมื่อหน่วยไฟวันนี้ถึงเกณฑ์และมากกว่า 2 kWh (ข้อมูล: `date`, `today_kwh`, `daily_average_kwh`, `factor`)
+- **สรุปรายวันและรายสัปดาห์ (v0.12)**: ทุกวันเวลา `summary_hour` (ค่าเริ่มต้น 21:00) ระบบส่งอีเวนต์ `electricity_bill_daily_summary` และในวัน `weekly_summary_day` (ค่าเริ่มต้น 6 = อาทิตย์) ส่ง `electricity_bill_weekly_summary` ด้วย ข้อมูลในอีเวนต์มีข้อความสำเร็จรูปใน `message` (ไทยหรืออังกฤษตามภาษา HA) พร้อมตัวเลขดิบ (`today_kwh`, `cost_estimate`, `devices`, `kwh`, `change_pct` ฯลฯ) รายสัปดาห์เทียบกับสัปดาห์ก่อนเมื่อมีข้อมูลครบ 14 วัน ประวัติรายวันเริ่มเก็บหลังติดตั้งและข้ามเที่ยงคืนครั้งแรก
+
+ตัวอย่างออโตเมชันส่งเข้า Telegram (เปลี่ยน `config_entry_id` และ `target` เป็นของคุณ):
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: electricity_bill_daily_summary
+  - trigger: event
+    event_type: electricity_bill_weekly_summary
+actions:
+  - action: telegram_bot.send_message
+    data:
+      config_entry_id: "<telegram config entry id>"
+      target: -1001234567890
+      message: "{{ trigger.event.data.message }}"
+```
 - **วันตัดรอบ**: เวลา 12:00 ของวันตัดรอบ ระบบส่งอีเวนต์ `electricity_bill_cutoff_day` (ข้อมูล: `cutoff_date`, `cycle_kwh`, `bill_estimate`, `forecast_bill`)
 
 ตัวอย่างออโตเมชันแจ้งเตือนจากอีเวนต์ (เปลี่ยน `notify.mobile_app_xxx` เป็นบริการแจ้งเตือนของคุณ):

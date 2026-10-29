@@ -141,6 +141,23 @@ On the second page of **Configure** ("Tariff, billing day and budget") choose a 
 - **Currency**: monetary sensors use the currency configured in Home Assistant (Settings > System > General).
 - **Budget**: set `budget_threshold` and the event `electricity_bill_budget_exceeded` is fired once per cycle when the estimated bill reaches it (data: `threshold`, `bill_estimate`, `cycle_kwh`, `cycle_start`).
 - **High daily usage**: set `high_usage_factor` (e.g. 2 = twice the cycle's daily average) and the event `electricity_bill_high_usage` is fired once per day when today's energy reaches it and is above 2 kWh (data: `date`, `today_kwh`, `daily_average_kwh`, `factor`).
+- **Daily and weekly summaries (v0.12)**: every day at `summary_hour` (default 21:00) the event `electricity_bill_daily_summary` is fired, and on `weekly_summary_day` (default 6 = Sunday) `electricity_bill_weekly_summary` too. The event data holds a ready-made text in `message` (Thai or English from the HA language) plus the raw numbers (`today_kwh`, `cost_estimate`, `devices`, `kwh`, `change_pct`, ...). The weekly one compares with the previous week once 14 days of history exist. The daily history starts after you install it and the first midnight passes.
+
+Example automation sending both to Telegram (replace `config_entry_id` and `target` with yours):
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: electricity_bill_daily_summary
+  - trigger: event
+    event_type: electricity_bill_weekly_summary
+actions:
+  - action: telegram_bot.send_message
+    data:
+      config_entry_id: "<telegram config entry id>"
+      target: -1001234567890
+      message: "{{ trigger.event.data.message }}"
+```
 - **Billing-day event**: at 12:00 on the billing day the event `electricity_bill_cutoff_day` is fired (data: `cutoff_date`, `cycle_kwh`, `bill_estimate`, `forecast_bill`).
 
 Example automation using the event (replace `notify.mobile_app_xxx` with your notifier):

@@ -1033,3 +1033,67 @@ def test_roll_day_gap_or_first_run_has_no_yesterday():
     assert yest is None and changed is True and rec["snapshot"] == {"a": 9.0}
     rec, yest, changed = calc.roll_day(None, "2026-10-27", "2026-10-26", {"a": 9.0})
     assert yest is None and changed is True
+
+
+# ---------------------------------------------------------------- summaries (Phase 9)
+def _hist(start_day, kwhs, per=None):
+    from datetime import timedelta as _td
+    out = []
+    for i, k in enumerate(kwhs):
+        d = (date.fromisoformat(start_day) + _td(days=i)).isoformat()
+        out.append({"date": d, "kwh": k, "per_source": dict(per or {"ac": k * 0.5, "pc": k * 0.1})})
+    return out
+
+
+def test_summarize_period_full_week_with_previous_week():
+    history = _hist("2026-10-15", [10, 10, 10, 10, 10, 10, 10, 12, 14, 11, 9, 10, 13, 12])  # 15..28 Oct
+    s = calc.summarize_period(history, date(2026, 10, 29), 8.0, {"ac": 4.0, "pc": 0.8}, days=7)
+    # window 23..28 from history (14+11+9+10+13+12 = 69) + today 8 = 77; previous week 16..22 = 72
+    assert s["kwh"] == 77.0
+    assert s["peak"] == {"date": "2026-10-23", "kwh": 14.0}
+    assert s["change_pct"] == 6.9
+    assert "ac" in s["per_source"]
+
+
+def test_summarize_period_partial_data_has_no_change():
+    history = _hist("2026-10-27", [6, 7])
+    s = calc.summarize_period(history, date(2026, 10, 29), 3.0, {"ac": 1.0}, days=7)
+    assert s["known_days"] == 3
+    assert s["kwh"] == 16.0
+    assert s["avg_per_day"] == round(16.0 / 3, 3)
+    assert s["change_pct"] is None
+    assert s["peak"] == {"date": "2026-10-28", "kwh": 7.0}
+
+
+def test_summarize_period_ignores_future_and_old_days():
+    history = _hist("2026-09-01", [99]) + _hist("2026-10-29", [50])
+    s = calc.summarize_period(history, date(2026, 10, 29), None, None, days=7)
+    assert s["known_days"] == 0 and s["kwh"] == 0.0 and s["peak"] is None
+
+
+def test_format_daily_summary_thai_and_english():
+    d = {
+        "currency": "฿", "rate": 4.5, "date": "2026-10-29", "today_kwh": 12.4, "yesterday_kwh": 10.1,
+        "avg_kwh": 9.8, "devices": [("แอร์ห้องนอน", 6.2), ("PC", 1.1), ("ปั๊ม", 0.0)],
+        "cycle_kwh": 61.2, "cycle_bill": 275.4, "forecast_bill": 620.0,
+    }
+    th = calc.format_summary("daily", "th", d)
+    assert "29/10" in th and "12.4 kWh" in th and "฿56" in th and "แอร์ห้องนอน 6.2 kWh" in th
+    assert "ปั๊ม" not in th  # zero usage is not listed
+    assert "คาดการณ์ถึงวันตัดรอบ ฿620" in th
+    en = calc.format_summary("daily", "ru", d)  # unknown language -> English
+    assert en.startswith("⚡ Electricity today (29/10)") and "yesterday 10.1 kWh" in en
+
+
+def test_format_weekly_summary():
+    d = {
+        "currency": "฿", "rate": 4.0, "start": "2026-10-23", "end": "2026-10-29", "kwh": 82.5,
+        "avg_per_day": 11.8, "known_days": 5, "peak": {"date": "2026-10-27", "kwh": 15.2},
+        "change_pct": 8.0, "devices": [("AC", 40.0)], "cycle_kwh": 140.0, "cycle_bill": 630.0, "forecast_bill": None,
+    }
+    th = calc.format_summary("weekly", "th", d)
+    assert "23/10 – 29/10" in th and "82.5 kWh ≈ ฿330" in th
+    assert "(มีข้อมูล 5 จาก 7 วัน)" in th
+    assert "เทียบสัปดาห์ก่อน +8.0%" in th
+    assert "วันที่ใช้มากสุด: 27/10 (15.2 kWh)" in th
+    assert "คาดการณ์" not in th

@@ -538,6 +538,7 @@ def test_format_bill_history():
         "vat",
         "items_mismatch",
         "note",
+        "per_source_kwh",
     }
     for item in history:
         assert set(item.keys()) == expected_keys
@@ -1150,3 +1151,31 @@ def test_clean_device_name():
     assert calc.clean_device_name("TCL Refrigerator Fridge TCL kWh") == "TCL Refrigerator Fridge TCL"
     assert calc.clean_device_name("PC") == "PC"
     assert calc.clean_device_name("kWh") == "kWh"
+
+
+# ---------------------------------------------------------------- per-device cycle (v0.14)
+def test_auto_cycle_start_due_day_after_billing_day():
+    days = (24, 25, 24)
+    # 25 Oct is the billing day of a 31-day month -> due on 26 Oct
+    assert calc.auto_cycle_start_due(date(2026, 10, 26), days, "2026-09-24", None) == "2026-10-25"
+    # not the day after a billing day
+    assert calc.auto_cycle_start_due(date(2026, 10, 27), days, "2026-09-24", None) is None
+    # bill for that day already recorded
+    assert calc.auto_cycle_start_due(date(2026, 10, 26), days, "2026-10-25", None) is None
+    # already started automatically
+    assert calc.auto_cycle_start_due(date(2026, 10, 26), days, "2026-09-24", "2026-10-25") is None
+    # 30-day month: 24 Nov -> due on 25 Nov
+    assert calc.auto_cycle_start_due(date(2026, 11, 25), days, "2026-10-25", None) == "2026-11-24"
+    # no billing day configured
+    assert calc.auto_cycle_start_due(date(2026, 10, 26), None, None, None) is None
+
+
+def test_recompute_bills_stores_per_source_kwh_for_known_meters():
+    bills = [
+        {"period_end": "2026-09-24", "snapshot": {"main": 0.0, "ac": 100.0}},
+        {"period_end": "2026-10-25", "snapshot": {"main": 300.0, "ac": 160.0, "fridge": 12.0}},
+    ]
+    out = calc.recompute_bills(bills, only=["main"])
+    assert out[1]["per_source_kwh"] == {"main": 300.0, "ac": 60.0}  # fridge was added later
+    history = calc.format_bill_history(out)
+    assert history[0]["per_source_kwh"] == {"main": 300.0, "ac": 60.0}

@@ -172,6 +172,44 @@ async def test_options_flow_two_pages(recorder_mock, hass: HomeAssistant) -> Non
     assert entry.options["main_meter"] == MAIN
 
 
+async def test_device_cycle_sensors_and_reset_with_new_bill(recorder_mock, hass: HomeAssistant) -> None:
+    hass.states.async_set(AC, "2", dict(ATTRS, friendly_name="aircon_bedroom_kwh"))
+    _set(hass, MAIN, 10)
+    await _setup(hass, {"main_meter": MAIN, "sources": [AC]})
+    energy = "sensor.electricity_bill_aircon_bedroom_cycle_energy"
+    cost = "sensor.electricity_bill_aircon_bedroom_cycle_cost"
+    assert hass.states.get(energy) is not None, [s for s in hass.states.async_entity_ids("sensor")]
+    hass.states.async_set(AC, "5", dict(ATTRS, friendly_name="aircon_bedroom_kwh"))
+    _set(hass, MAIN, 16)
+    await hass.async_block_till_done()
+    assert float(hass.states.get(energy).state) == 3.0
+    assert float(hass.states.get(cost).state) == round(3.0 * 4.4, 2)  # fallback rate, no bill yet
+    await hass.services.async_call(
+        DOMAIN, "add_bill", {"period_end": dt_util.now().date().isoformat(), "kwh": 300, "amount": 1350}, blocking=True
+    )
+    await hass.async_block_till_done()
+    assert float(hass.states.get(energy).state) == 0.0  # new cycle
+    assert float(hass.states.get(cost).state) == 0.0
+
+
+async def test_cycle_starts_automatically_after_billing_day(recorder_mock, hass: HomeAssistant) -> None:
+    _set(hass, MAIN, 10)
+    _set(hass, AC, 1)
+    entry = await _setup(
+        hass, {"main_meter": MAIN, "sources": [AC], "cutoff_day_30": 24, "cutoff_day_31": 25, "cutoff_day_feb": 24}
+    )
+    _set(hass, MAIN, 25)
+    await hass.async_block_till_done()
+    assert float(_state(hass, "cycle_energy")) == 15.0
+    coordinator = entry.runtime_data
+    coordinator._maybe_start_cycle(today=dt_util.parse_date("2026-10-26"))  # day after the 31-day-month billing day
+    coordinator._update_internal_data()
+    coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+    assert float(_state(hass, "cycle_energy")) == 0.0
+    assert coordinator.data["cycle_start"] == "2026-10-25"
+
+
 async def test_panel_file_is_served_no_cache(recorder_mock, hass: HomeAssistant, hass_client_no_auth) -> None:
     _set(hass, MAIN, 10)
     _set(hass, AC, 1)

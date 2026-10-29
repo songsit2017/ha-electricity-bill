@@ -296,12 +296,17 @@ def recompute_bills(
         else:
             prev_bill = sorted_bills[idx - 1]
             bill["period_start"] = prev_bill.get("period_end")
-            delta, _ = calculate_snapshot_delta(
+            delta, per_source = calculate_snapshot_delta(
                 bill.get("snapshot", {}),
                 prev_bill.get("snapshot", {}),
                 only=only,
             )
             bill["measured_kwh"] = delta
+            # energy per meter for this bill; only meters known at both ends of the period
+            prev_keys = set((prev_bill.get("snapshot") or {}).keys())
+            bill["per_source_kwh"] = {
+                k: round(v, 3) for k, v in per_source.items() if k in prev_keys
+            }
 
     return sorted_bills
 
@@ -467,6 +472,7 @@ def format_bill_history(
             "vat": vat,
             "items_mismatch": mismatch,
             "note": str(bill.get("note", "")),
+            "per_source_kwh": dict(bill.get("per_source_kwh") or {}),
         })
 
     return list(reversed(formatted_asc))[:max_items]
@@ -1108,3 +1114,27 @@ def clean_device_name(name: str) -> str:
     text = str(name).replace("_", " ").strip()
     text = re.sub(r"\s*kwh\s*$", "", text, flags=re.IGNORECASE).strip()
     return text or str(name)
+
+
+def auto_cycle_start_due(
+    today: date,
+    cutoff_days: tuple[int, int, int] | None,
+    latest_bill_end: str | None,
+    current_auto_start: str | None,
+) -> str | None:
+    """ISO date of a billing day that should start a new cycle now, else None.
+
+    True the day after a billing day (yesterday was the cut-off) when no bill for that
+    day or later is recorded yet and the cycle was not already started for it.
+    """
+    if not cutoff_days:
+        return None
+    yesterday = today - timedelta(days=1)
+    if cutoff_day_for_month(yesterday.year, yesterday.month, *cutoff_days) != yesterday:
+        return None
+    iso = yesterday.isoformat()
+    if latest_bill_end and latest_bill_end >= iso:
+        return None
+    if current_auto_start and current_auto_start >= iso:
+        return None
+    return iso

@@ -17,6 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import ElectricityBillConfigEntry, ElectricityBillCoordinator
+from .calc import clean_device_name
 
 CURRENCY_THB = "THB"
 
@@ -215,7 +216,72 @@ async def async_setup_entry(
         for description in SENSOR_DESCRIPTIONS
         if description.key != "cycle_unmetered_kwh" or coordinator.main_meter
     ]
+    # one energy and one cost sensor per metered source; both start again with every billing cycle
+    for source in coordinator.sources:
+        state = hass.states.get(source)
+        name = clean_device_name((state.attributes.get("friendly_name") if state else None) or source.split(".", 1)[-1])
+        entities.append(SourceCycleSensor(coordinator, source, name, cost=False))
+        entities.append(SourceCycleSensor(coordinator, source, name, cost=True))
     async_add_entities(entities)
+
+
+class SourceCycleSensor(CoordinatorEntity[ElectricityBillCoordinator], SensorEntity):
+    """Energy or estimated cost of one metered device in the current billing cycle.
+
+    Resets when a new bill starts the next cycle. Cost = device cycle kWh x the effective
+    rate of the last bill (the same average rate the bill itself works out to).
+    """
+
+    _attr_has_entity_name = True
+    _attr_suggested_display_precision = 2
+
+    def __init__(
+        self,
+        coordinator: ElectricityBillCoordinator,
+        source: str,
+        device_name: str,
+        cost: bool,
+    ) -> None:
+        super().__init__(coordinator)
+        self._source = source
+        self._cost = cost
+        key = "source_cycle_cost" if cost else "source_cycle_kwh"
+        self._attr_unique_id = f"{coordinator.entry.entry_id}_{source}_{key}"
+        self._attr_translation_key = key
+        self._attr_translation_placeholders = {"device": device_name}
+        self._attr_device_info = coordinator.device_info
+        if cost:
+            self._attr_device_class = SensorDeviceClass.MONETARY
+            self._attr_state_class = SensorStateClass.TOTAL
+        else:
+            self._attr_device_class = SensorDeviceClass.ENERGY
+            self._attr_state_class = SensorStateClass.TOTAL
+            self._attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        if self._cost:
+            return getattr(self.hass.config, "currency", None) or CURRENCY_THB
+        return UnitOfEnergy.KILO_WATT_HOUR
+
+    @property
+    def native_value(self) -> float | None:
+        data = self.coordinator.data or {}
+        kwh = (data.get("per_source") or {}).get(self._source)
+        if kwh is None:
+            return None
+        if not self._cost:
+            return round(float(kwh), 3)
+        return round(float(kwh) * float(data.get("effective_rate") or 0.0), 2)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.data or {}
+        return {
+            "source": self._source,
+            "cycle_start": data.get("cycle_start"),
+            "rate": data.get("effective_rate"),
+        }
 
 
 class ElectricityBillSensor(CoordinatorEntity[ElectricityBillCoordinator], SensorEntity):

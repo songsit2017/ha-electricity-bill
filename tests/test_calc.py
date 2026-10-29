@@ -1143,3 +1143,10 @@ def test_implied_ft_rate():
     assert calc.implied_ft_rate({"ft_charge": None, "kwh": 862}) is None
     assert calc.implied_ft_rate({"ft_charge": 10, "kwh": 0}) is None
     assert calc.implied_ft_rate(None) is None
+
+
+def test_clean_device_name():
+    assert calc.clean_device_name("aircon_bedroom_kwh") == "aircon bedroom"
+    assert calc.clean_device_name("TCL Refrigerator Fridge TCL kWh") == "TCL Refrigerator Fridge TCL"
+    assert calc.clean_device_name("PC") == "PC"
+    assert calc.clean_device_name("kWh") == "kWh"

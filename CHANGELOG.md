@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.13.1
+- Cleaner device names in summaries and the panel: a trailing "kWh" is removed (e.g. "TCL Refrigerator Fridge TCL kWh" -> "TCL Refrigerator Fridge TCL").
+
 ## 0.13.0
 - Reliability: tests that run the integration inside a real Home Assistant (pytest-homeassistant-custom-component, new CI job "HA tests": setup, sensors, Today Energy with an unavailable meter, reset button on a newer bill, summaries, Ft issue, diagnostics, config and options flows, panel no-cache).
 - Diagnostics download; Repairs issues for a long-unavailable meter and an outdated Ft.

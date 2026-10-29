@@ -1766,7 +1766,7 @@ class ElectricityBillPanel extends HTMLElement {
   _nameOf(id) {
     const s = this._hass.states[id];
     const n = (s && s.attributes && s.attributes.friendly_name) || id;
-    return String(n).replace(/_kwh$/i, "").replace(/_/g, " ");
+    return String(n).replace(/_/g, " ").replace(/\s*kwh\s*$/i, "").trim() || String(n);
   }
 
   _mainMeter() {

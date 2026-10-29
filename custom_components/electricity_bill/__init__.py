@@ -33,6 +33,7 @@ from .calc import (
     calculate_cycle_kwh,
     calculate_cycle_unmetered_kwh,
     calculate_daily_average,
+    clean_device_name,
     format_summary,
     history_from_daily_changes,
     implied_ft_rate,
@@ -717,7 +718,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
             state = self.hass.states.get(entity_id)
             name = (state.attributes.get("friendly_name") if state else None) or entity_id
-            devices.append((str(name).replace("_kwh", "").replace("_", " ").strip(), float(kwh)))
+            devices.append((clean_device_name(str(name)), float(kwh)))
         return sorted(devices, key=lambda x: x[1], reverse=True)
 
     def _summary_payload(self, kind: str) -> dict[str, Any] | None:

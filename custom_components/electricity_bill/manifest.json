@@ -19,5 +19,5 @@
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/songsit2017/ha-electricity-bill/issues",
   "requirements": [],
-  "version": "0.13.0"
+  "version": "0.13.1"
 }

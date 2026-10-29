@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0
+- Per-device sensors for every metered source: "<device> cycle energy" (kWh) and "<device> cycle cost" (kWh x the last bill's average rate), resetting every billing cycle.
+- Automatic cycle start at midnight after the billing day when the bill has not been recorded yet; recording the bill later moves the cut to the bill's period end.
+- Each bill stores per-meter energy for its period (`per_source_kwh` in the bill history); the panel lists it with cost when a bill is opened.
+- Tests: 73 unit + 12 Home Assistant tests (device sensors reset with a new bill, automatic cycle start).
+- Python change: restart Home Assistant once after updating.
+
 ## 0.13.1
 - Cleaner device names in summaries and the panel: a trailing "kWh" is removed (e.g. "TCL Refrigerator Fridge TCL kWh" -> "TCL Refrigerator Fridge TCL").
 

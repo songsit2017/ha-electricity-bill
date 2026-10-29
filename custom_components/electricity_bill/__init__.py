@@ -32,6 +32,7 @@ from .calc import (
     calculate_cycle_cost,
     calculate_cycle_kwh,
     calculate_cycle_unmetered_kwh,
+    auto_cycle_start_due,
     calculate_daily_average,
     clean_device_name,
     format_summary,
@@ -186,6 +187,8 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._yesterday_kwh: float | None = None
         self._high_usage_notified: str | None = None
         self._history: list[dict[str, Any]] = []
+        self._auto_cycle_start: str | None = None
+        self._auto_roll_pending: str | None = None
         self._source_missing_since: datetime | None = None
         self._active_issues: set[str] = set()
 
@@ -361,6 +364,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._yesterday_kwh = stored.get("yesterday_kwh")
         self._high_usage_notified = stored.get("high_usage_notified")
         self._history = list(stored.get("daily_history") or [])
+        self._auto_cycle_start = stored.get("auto_cycle_start")
 
         # If baseline cycle snapshot is empty, initialize it from current states
         if not self.cycle_snapshot and self.sources:
@@ -389,6 +393,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         @callback
         def _midnight(_now: datetime) -> None:
+            self._maybe_start_cycle()
             self._update_internal_data()
             self.async_update_listeners()
 
@@ -539,6 +544,12 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             current_snapshot, self.cycle_snapshot, only=self.total_sources
         )
         today_kwh: float | None = None
+        if self._auto_roll_pending and self._total_sources_ready():
+            self._maybe_start_cycle()
+            current_snapshot = self.get_current_snapshot()
+            cycle_kwh, per_source = calculate_cycle_kwh(
+                current_snapshot, self.cycle_snapshot, only=self.total_sources
+            )
         if self._total_sources_ready():
             today_date = dt_util.now().date()
             previous_day = self._day
@@ -596,6 +607,10 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             unmetered = None
             share_metered = None
             last_bill_measured = None
+
+        # a cycle started automatically after the billing day counts until its bill is recorded
+        if self._auto_cycle_start and self._auto_cycle_start > (cycle_start or ""):
+            cycle_start = self._auto_cycle_start
 
         now_date_str = dt_util.now().date().isoformat()
         days_in_cycle = calculate_days_in_cycle(cycle_start, now_date_str)
@@ -909,6 +924,33 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elif not active and issue_id in self._active_issues:
             ir.async_delete_issue(self.hass, DOMAIN, issue_id)
             self._active_issues.discard(issue_id)
+
+    @callback
+    def _maybe_start_cycle(self, today: date | None = None) -> None:
+        """Start the next cycle at midnight after the billing day if no bill was recorded yet.
+
+        The new baseline is the meters at the end of the billing day; recording the real bill
+        later replaces it with the exact snapshot for the bill's period end.
+        """
+        today = today or dt_util.now().date()
+        latest_end = self.bills[-1].get("period_end") if self.bills else None
+        due = self._auto_roll_pending or auto_cycle_start_due(
+            today, self.cutoff_days, latest_end, self._auto_cycle_start
+        )
+        if not due:
+            return
+        if not self._total_sources_ready():
+            self._auto_roll_pending = due  # try again when the meters are back
+            return
+        self._auto_roll_pending = None
+        self.cycle_snapshot = self.get_current_snapshot()
+        self._auto_cycle_start = due
+        self._budget_notified = None
+        self.hass.async_create_task(self._async_save_cycle_start())
+
+    async def _async_save_cycle_start(self) -> None:
+        await self.store.async_save({"bills": self.bills, "cycle_snapshot": self.cycle_snapshot})
+        await self.store.async_set_extra("auto_cycle_start", self._auto_cycle_start)
 
     async def _async_save_day(self) -> None:
         """Persist the day-start record and yesterday's total (extra keys of the store)."""

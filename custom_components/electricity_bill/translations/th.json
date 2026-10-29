@@ -112,6 +112,12 @@
       },
       "daily_average_kwh": {
         "name": "ค่าเฉลี่ยหน่วยไฟต่อวัน"
+      },
+      "source_cycle_kwh": {
+        "name": "{device} หน่วยไฟรอบบิลนี้"
+      },
+      "source_cycle_cost": {
+        "name": "{device} ค่าไฟรอบบิลนี้"
       }
     }
   },

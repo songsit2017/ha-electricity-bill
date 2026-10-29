@@ -108,6 +108,12 @@
       },
       "daily_average_kwh": {
         "name": "Rata-rata Energi Harian"
+      },
+      "source_cycle_kwh": {
+        "name": "{device} energi siklus ini"
+      },
+      "source_cycle_cost": {
+        "name": "{device} biaya siklus ini"
       }
     }
   },

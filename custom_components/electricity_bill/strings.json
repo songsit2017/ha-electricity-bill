@@ -112,6 +112,12 @@
       },
       "daily_average_kwh": {
         "name": "Daily Average Energy"
+      },
+      "source_cycle_kwh": {
+        "name": "{device} cycle energy"
+      },
+      "source_cycle_cost": {
+        "name": "{device} cycle cost"
       }
     }
   },

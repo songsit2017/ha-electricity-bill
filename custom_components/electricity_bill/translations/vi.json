@@ -108,6 +108,12 @@
       },
       "daily_average_kwh": {
         "name": "Điện năng trung bình mỗi ngày"
+      },
+      "source_cycle_kwh": {
+        "name": "{device} điện năng kỳ này"
+      },
+      "source_cycle_cost": {
+        "name": "{device} tiền điện kỳ này"
       }
     }
   },

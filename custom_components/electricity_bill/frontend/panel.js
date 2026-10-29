@@ -1628,6 +1628,22 @@ class ElectricityBillPanel extends HTMLElement {
           return el("div", { class: "charge-row" }, el("span", { text: label }), el("span", { class: "charge-val", text: displayVal }));
         };
 
+        const perDev = Object.entries(b.per_source_kwh || {}).filter(([id]) => id !== this._mainMeter()).sort((x, y) => y[1] - x[1]);
+        const devBox = perDev.length
+          ? el(
+              "div",
+              { class: "charges-box" },
+              el("div", { class: "charges-title", text: T("ใช้ไฟรายเครื่อง (รอบนี้)").replace(/\s*\(.*\)$/, "") }),
+              ...perDev.map(([id, kwh]) =>
+                el(
+                  "div",
+                  { class: "charge-row" },
+                  el("span", { text: this._nameOf(id) }),
+                  el("span", { class: "charge-val", text: num(kwh, 1) + " kWh · " + T("฿") + num(kwh * (Number(b.rate) || 0), 0) })
+                )
+              )
+            )
+          : null;
         const chargesBox = el(
           "div",
           { class: "charges-box" },
@@ -1643,6 +1659,7 @@ class ElectricityBillPanel extends HTMLElement {
           statsGrid,
           chargesBox,
         ];
+        if (devBox) expandedChildren.push(devBox);
 
         // 4. Mismatch warning line when items_mismatch
         if (b.items_mismatch) {

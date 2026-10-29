@@ -108,6 +108,12 @@
       },
       "daily_average_kwh": {
         "name": "Purata Tenaga Harian"
+      },
+      "source_cycle_kwh": {
+        "name": "{device} tenaga kitaran ini"
+      },
+      "source_cycle_cost": {
+        "name": "{device} kos kitaran ini"
       }
     }
   },

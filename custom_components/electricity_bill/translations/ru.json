@@ -108,6 +108,12 @@
       },
       "daily_average_kwh": {
         "name": "Среднесуточная энергия"
+      },
+      "source_cycle_kwh": {
+        "name": "{device}: энергия за период"
+      },
+      "source_cycle_cost": {
+        "name": "{device}: стоимость за период"
       }
     }
   },

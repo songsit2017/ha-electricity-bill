@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.0
+- Reliability: tests that run the integration inside a real Home Assistant (pytest-homeassistant-custom-component, new CI job "HA tests": setup, sensors, Today Energy with an unavailable meter, reset button on a newer bill, summaries, Ft issue, diagnostics, config and options flows, panel no-cache).
+- Diagnostics download; Repairs issues for a long-unavailable meter and an outdated Ft.
+- Daily history backfilled from the recorder's daily statistics (up to 28 days).
+- Service `electricity_bill.get_summary` (daily / weekly / cycle) returning a ready-made message; the billing-day event now carries a cycle summary message with a reminder.
+- Python change: restart Home Assistant once after updating.
+
 ## 0.12.0
 - Daily and weekly summaries: events `electricity_bill_daily_summary` (every day at `summary_hour`, default 21) and `electricity_bill_weekly_summary` (on `weekly_summary_day`, default Sunday), each with a ready-made `message` (Thai/English) and raw numbers; a rolling 70-day history of finished days is kept in the integration's storage.
 - Python change: restart Home Assistant once after updating.

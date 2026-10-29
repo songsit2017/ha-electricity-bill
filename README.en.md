@@ -158,6 +158,35 @@ actions:
       target: -1001234567890
       message: "{{ trigger.event.data.message }}"
 ```
+- **Summaries on demand (v0.13)**: the service `electricity_bill.get_summary` (`kind`: `daily`, `weekly`, `cycle`) returns the data with `message`; use it with `response_variable`, e.g. to answer a Telegram command. The `electricity_bill_cutoff_day` event (12:00 on the billing day) now carries a whole-cycle `message` with a reminder to record the bill.
+
+Example answering `/power` and `/week` in Telegram:
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: telegram_command
+    event_data:
+      command: /power
+    id: daily
+  - trigger: event
+    event_type: telegram_command
+    event_data:
+      command: /week
+    id: weekly
+actions:
+  - action: electricity_bill.get_summary
+    data:
+      kind: "{{ trigger.id }}"
+    response_variable: summary
+  - action: telegram_bot.send_message
+    data:
+      config_entry_id: "<telegram config entry id>"
+      target: "{{ trigger.event.data.chat_id }}"
+      message: "{{ summary.message }}"
+```
+
+- **Self-care (v0.13)**: a "Download diagnostics" button on the integration page, and Home Assistant Repairs issues when the main meter has been unavailable for more than an hour or when the configured Ft differs from your last bill. The daily history is backfilled from HA's statistics (up to 28 days), so the weekly summary is complete from the first week.
 - **Billing-day event**: at 12:00 on the billing day the event `electricity_bill_cutoff_day` is fired (data: `cutoff_date`, `cycle_kwh`, `bill_estimate`, `forecast_bill`).
 
 Example automation using the event (replace `notify.mobile_app_xxx` with your notifier):

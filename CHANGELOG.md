@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.0
+- Daily and weekly summaries: events `electricity_bill_daily_summary` (every day at `summary_hour`, default 21) and `electricity_bill_weekly_summary` (on `weekly_summary_day`, default Sunday), each with a ready-made `message` (Thai/English) and raw numbers; a rolling 70-day history of finished days is kept in the integration's storage.
+- Python change: restart Home Assistant once after updating.
+
 ## 0.11.1
 - Fix: after a Home Assistant restart `Today Energy` could show the whole cycle's energy, because the day-start record was taken while the main meter was still unavailable. The day is now only tracked while the meter has a value, and the old day records are dropped once (today's figure starts again from the current meter value).
 - Python change: restart Home Assistant once after updating.

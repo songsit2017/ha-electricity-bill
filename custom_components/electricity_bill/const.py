@@ -19,6 +19,8 @@ CONF_CUTOFF_DAY_FEB = "cutoff_day_feb"
 CONF_BUDGET_THRESHOLD = "budget_threshold"
 CONF_TARIFF_PROFILE = "tariff_profile"
 CONF_HIGH_USAGE_FACTOR = "high_usage_factor"
+CONF_SUMMARY_HOUR = "summary_hour"
+CONF_WEEKLY_DAY = "weekly_summary_day"
 CONF_TARIFF_TIERS = "tariff_tiers"
 
 # Tariff profiles. "none" (default) keeps the generic behaviour: estimates use the
@@ -56,6 +58,11 @@ EVENT_BUDGET_EXCEEDED = "electricity_bill_budget_exceeded"
 EVENT_HIGH_USAGE = "electricity_bill_high_usage"
 HIGH_USAGE_MIN_KWH = 2.0
 DAY_RECORD_VERSION = 2
+EVENT_DAILY_SUMMARY = "electricity_bill_daily_summary"
+EVENT_WEEKLY_SUMMARY = "electricity_bill_weekly_summary"
+DEFAULT_SUMMARY_HOUR = 21
+DEFAULT_WEEKLY_DAY = 6  # 0 = Monday ... 6 = Sunday
+HISTORY_MAX_DAYS = 70
 
 # Defaults
 DEFAULT_NAME = "Electricity Bill"

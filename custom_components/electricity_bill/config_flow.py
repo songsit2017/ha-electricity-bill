@@ -33,6 +33,8 @@ from .const import (
     CONF_FALLBACK_RATE,
     CONF_FT_RATE,
     CONF_HIGH_USAGE_FACTOR,
+    CONF_SUMMARY_HOUR,
+    CONF_WEEKLY_DAY,
     CONF_MAIN_METER,
     CONF_NAME,
     CONF_RESET_BUTTON,
@@ -183,6 +185,8 @@ class ElectricityBillOptionsFlow(config_entries.OptionsFlow):
             (CONF_CUTOFF_DAY_FEB, 1, 28, 1),
             (CONF_BUDGET_THRESHOLD, 0.0, 10000000.0, 1.0),
             (CONF_HIGH_USAGE_FACTOR, 1.1, 20.0, 0.1),
+            (CONF_SUMMARY_HOUR, 0, 23, 1),
+            (CONF_WEEKLY_DAY, 0, 6, 1),
         ):
             k, sel = number(key, lo, hi, step)
             schema[k] = sel

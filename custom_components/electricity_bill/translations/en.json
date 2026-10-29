@@ -49,14 +49,18 @@
           "cutoff_day_31": "Billing day in 31-day months",
           "cutoff_day_feb": "Billing day in February",
           "budget_threshold": "Budget alert threshold (cost per cycle)",
-          "high_usage_factor": "High daily usage alert (x the cycle average)"
+          "high_usage_factor": "High daily usage alert (x the cycle average)",
+          "summary_hour": "Daily summary hour (0-23, default 21)",
+          "weekly_summary_day": "Weekly summary weekday (0 = Monday ... 6 = Sunday, default 6)"
         },
         "data_description": {
           "tariff_profile": "none = estimate with the last bill's effective rate. thailand_residential = Thai PEA/MEA residential tiers (from the Sep 2026 bill). custom = your own tiers.",
           "tariff_tiers": "Format \"200:3.0, 400:4.1584, 4.3583\": cumulative upper limit in kWh and rate per kWh; the last tier is open-ended.",
           "cutoff_day_30": "Set the same day in all three fields if your billing day is fixed. Leave empty to disable the next-billing-day and forecast sensors.",
           "budget_threshold": "Fires the event electricity_bill_budget_exceeded once per cycle when the estimated bill reaches this amount.",
-          "high_usage_factor": "Fires the event electricity_bill_high_usage once per day when today's energy reaches this multiple of the cycle's daily average (and at least 2 kWh). Leave empty to disable."
+          "high_usage_factor": "Fires the event electricity_bill_high_usage once per day when today's energy reaches this multiple of the cycle's daily average (and at least 2 kWh). Leave empty to disable.",
+          "summary_hour": "At this hour every day the event electricity_bill_daily_summary is fired with a ready-made text in event data \"message\" (Thai or English, from the HA language). Send it with any notifier, e.g. Telegram.",
+          "weekly_summary_day": "On this weekday, at the same hour, the event electricity_bill_weekly_summary is fired too (last 7 days)."
         }
       }
     },

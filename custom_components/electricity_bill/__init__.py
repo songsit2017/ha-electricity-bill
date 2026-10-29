@@ -32,6 +32,8 @@ from .calc import (
     calculate_cycle_kwh,
     calculate_cycle_unmetered_kwh,
     calculate_daily_average,
+    format_summary,
+    summarize_period,
     is_high_usage,
     roll_day,
     estimate_bill,
@@ -65,6 +67,8 @@ from .const import (
     CONF_FALLBACK_RATE,
     CONF_FT_RATE,
     CONF_HIGH_USAGE_FACTOR,
+    CONF_SUMMARY_HOUR,
+    CONF_WEEKLY_DAY,
     CONF_MAIN_METER,
     CONF_TARIFF_PROFILE,
     CONF_TARIFF_TIERS,
@@ -88,6 +92,11 @@ from .const import (
     EVENT_HIGH_USAGE,
     HIGH_USAGE_MIN_KWH,
     DAY_RECORD_VERSION,
+    DEFAULT_SUMMARY_HOUR,
+    DEFAULT_WEEKLY_DAY,
+    EVENT_DAILY_SUMMARY,
+    EVENT_WEEKLY_SUMMARY,
+    HISTORY_MAX_DAYS,
     TARIFF_SMALL_USER_LIMIT_KWH,
     TARIFF_TIERS_OVER_150,
     TARIFF_TIERS_UP_TO_150,
@@ -165,6 +174,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._day: dict[str, Any] | None = None
         self._yesterday_kwh: float | None = None
         self._high_usage_notified: str | None = None
+        self._history: list[dict[str, Any]] = []
 
     def _opt(self, key: str, default: Any) -> Any:
         value = self.entry.options.get(key, self.entry.data.get(key))
@@ -208,6 +218,20 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except (TypeError, ValueError):
             return None
         return value if value and value > 0 else None
+
+    @property
+    def summary_hour(self) -> int:
+        try:
+            return min(23, max(0, int(self._opt(CONF_SUMMARY_HOUR, DEFAULT_SUMMARY_HOUR))))
+        except (TypeError, ValueError):
+            return DEFAULT_SUMMARY_HOUR
+
+    @property
+    def weekly_day(self) -> int:
+        try:
+            return min(6, max(0, int(self._opt(CONF_WEEKLY_DAY, DEFAULT_WEEKLY_DAY))))
+        except (TypeError, ValueError):
+            return DEFAULT_WEEKLY_DAY
 
     @property
     def budget_threshold(self) -> float | None:
@@ -323,6 +347,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._day = stored_day if stored_day and stored_day.get("v") == DAY_RECORD_VERSION else None
         self._yesterday_kwh = stored.get("yesterday_kwh")
         self._high_usage_notified = stored.get("high_usage_notified")
+        self._history = list(stored.get("daily_history") or [])
 
         # If baseline cycle snapshot is empty, initialize it from current states
         if not self.cycle_snapshot and self.sources:
@@ -358,9 +383,14 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         def _noon(_now: datetime) -> None:
             self._fire_cutoff_event()
 
+        @callback
+        def _summary(_now: datetime) -> None:
+            self._fire_summaries()
+
         self._unsub_time = [
             async_track_time_change(self.hass, _midnight, hour=0, minute=0, second=5),
             async_track_time_change(self.hass, _noon, hour=12, minute=0, second=0),
+            async_track_time_change(self.hass, _summary, hour=self.summary_hour, minute=0, second=30),
         ]
 
         if self.sources:
@@ -493,6 +523,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         today_kwh: float | None = None
         if self._total_sources_ready():
             today_date = dt_util.now().date()
+            previous_day = self._day
             record, rolled_yesterday, changed = roll_day(
                 self._day,
                 today_date.isoformat(),
@@ -508,6 +539,8 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._yesterday_kwh = (
                         round(rolled_yesterday, 3) if rolled_yesterday is not None else None
                     )
+                    if rolled_yesterday is not None and previous_day is not None:
+                        self._append_history(previous_day, current_snapshot, rolled_yesterday)
                 self.hass.async_create_task(self._async_save_day())
             today_kwh, _ = calculate_cycle_kwh(
                 current_snapshot, self._day.get("snapshot", {}), only=self.total_sources
@@ -639,10 +672,113 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return False
         return bool(self.total_sources)
 
+    @callback
+    def _append_history(
+        self,
+        previous_day: dict[str, Any],
+        current_snapshot: dict[str, float],
+        total_kwh: float,
+    ) -> None:
+        """Remember the finished day (its date, total and per-source energy) for the weekly summary."""
+        _, per_source = calculate_cycle_kwh(current_snapshot, previous_day.get("snapshot", {}))
+        entry = {
+            "date": previous_day.get("date"),
+            "kwh": round(total_kwh, 3),
+            "per_source": {k: round(v, 3) for k, v in per_source.items()},
+        }
+        self._history = [h for h in self._history if h.get("date") != entry["date"]]
+        self._history.append(entry)
+        self._history = sorted(self._history, key=lambda h: str(h.get("date")))[-HISTORY_MAX_DAYS:]
+
+    def _device_list(self, per_source: dict[str, float]) -> list[tuple[str, float]]:
+        """Sub-meter energy by device name, biggest first (the main meter itself is left out)."""
+        main = self.main_meter
+        devices = []
+        for entity_id, kwh in per_source.items():
+            if entity_id == main:
+                continue
+            state = self.hass.states.get(entity_id)
+            name = (state.attributes.get("friendly_name") if state else None) or entity_id
+            devices.append((str(name).replace("_kwh", "").replace("_", " ").strip(), float(kwh)))
+        return sorted(devices, key=lambda x: x[1], reverse=True)
+
+    @callback
+    def _fire_summaries(self) -> None:
+        """At the summary hour fire the daily summary and, on the weekly day, the weekly one."""
+        if not self.data or not self._day:
+            return
+        today = dt_util.now().date()
+        lang = (self.hass.config.language or "en").split("-")[0].lower()
+        currency = {"THB": "฿"}.get(self.hass.config.currency, self.hass.config.currency + " ")
+        rate = float(self.data.get("effective_rate") or 0.0)
+        today_kwh = self.data.get("today_kwh")
+        if today_kwh is None:
+            return
+        current_snapshot = self.get_current_snapshot()
+        _, today_per_source = calculate_cycle_kwh(current_snapshot, self._day.get("snapshot", {}))
+        forecast = (self.data.get("forecast") or {}).get("bill") or {}
+        base = {
+            "currency": currency,
+            "rate": rate,
+            "cycle_kwh": self.data.get("cycle_kwh"),
+            "cycle_bill": (self.data.get("cycle_bill_estimate") or {}).get("total"),
+            "forecast_bill": forecast.get("total"),
+        }
+        daily = dict(
+            base,
+            date=today.isoformat(),
+            today_kwh=today_kwh,
+            yesterday_kwh=self._yesterday_kwh,
+            avg_kwh=self.data.get("daily_average_kwh"),
+            devices=self._device_list(today_per_source),
+        )
+        self.hass.bus.async_fire(
+            EVENT_DAILY_SUMMARY,
+            {
+                "date": today.isoformat(),
+                "today_kwh": today_kwh,
+                "yesterday_kwh": self._yesterday_kwh,
+                "daily_average_kwh": self.data.get("daily_average_kwh"),
+                "cost_estimate": round(today_kwh * rate, 2),
+                "devices": [{"name": n, "kwh": round(k, 3)} for n, k in daily["devices"]],
+                "message": format_summary("daily", lang, daily),
+            },
+        )
+        if today.weekday() != self.weekly_day:
+            return
+        week = summarize_period(self._history, today, today_kwh, today_per_source, days=7)
+        weekly = dict(
+            base,
+            start=week["start"],
+            end=week["end"],
+            kwh=week["kwh"],
+            avg_per_day=week["avg_per_day"],
+            known_days=week["known_days"],
+            peak=week["peak"],
+            change_pct=week["change_pct"],
+            devices=self._device_list(week["per_source"]),
+        )
+        self.hass.bus.async_fire(
+            EVENT_WEEKLY_SUMMARY,
+            {
+                "start": week["start"],
+                "end": week["end"],
+                "kwh": week["kwh"],
+                "avg_per_day": week["avg_per_day"],
+                "known_days": week["known_days"],
+                "cost_estimate": round(week["kwh"] * rate, 2),
+                "change_pct": week["change_pct"],
+                "peak": week["peak"],
+                "devices": [{"name": n, "kwh": round(k, 3)} for n, k in weekly["devices"]],
+                "message": format_summary("weekly", lang, weekly),
+            },
+        )
+
     async def _async_save_day(self) -> None:
         """Persist the day-start record and yesterday's total (extra keys of the store)."""
         await self.store.async_set_extra("day", self._day)
         await self.store.async_set_extra("yesterday_kwh", self._yesterday_kwh)
+        await self.store.async_set_extra("daily_history", self._history)
 
     @callback
     def _check_high_usage(self) -> None:

@@ -12,6 +12,9 @@ if str(ROOT) not in sys.path:
 
 
 @pytest.fixture(autouse=True)
-def auto_enable_custom_integrations(enable_custom_integrations):
-    """Let Home Assistant load custom_components/electricity_bill."""
+def auto_enable_custom_integrations(recorder_mock, enable_custom_integrations):
+    """Let Home Assistant load custom_components/electricity_bill.
+
+    The integration depends on the recorder, which must be set up before the hass fixture.
+    """
     yield

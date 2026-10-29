@@ -940,6 +940,12 @@ _SUMMARY_TEXT = {
         "week_days": "(มีข้อมูล {n} จาก 7 วัน)",
         "change": "เทียบสัปดาห์ก่อน {pct}%",
         "peak": "วันที่ใช้มากสุด: {date} ({kwh} kWh)",
+        "cycle_title": "🧾 สรุปรอบบิล ({start} – {end}, {days} วัน)",
+        "cycle_total": "ใช้ไป {kwh} kWh · ประมาณการบิล {cur}{cost} · เฉลี่ย {avg} kWh/วัน",
+        "devices_cycle": "ใช้มากสุดรอบนี้: {items}",
+        "last_bill": "บิลก่อน: {kwh} kWh · {cur}{cost}",
+        "cutoff": "ตัดรอบถัดไป: {date}",
+        "reminder": "📌 วันนี้ตัดรอบ อย่าลืมบันทึกบิลใหม่ที่หน้า \"ค่าไฟ\"",
     },
     "en": {
         "daily_title": "⚡ Electricity today ({date})",
@@ -955,6 +961,12 @@ _SUMMARY_TEXT = {
         "week_days": "(data for {n} of 7 days)",
         "change": "vs previous week {pct}%",
         "peak": "Peak day: {date} ({kwh} kWh)",
+        "cycle_title": "🧾 Billing cycle summary ({start} – {end}, {days} days)",
+        "cycle_total": "Used {kwh} kWh · bill estimate {cur}{cost} · avg {avg} kWh/day",
+        "devices_cycle": "Top this cycle: {items}",
+        "last_bill": "Previous bill: {kwh} kWh · {cur}{cost}",
+        "cutoff": "Next billing day: {date}",
+        "reminder": "📌 Billing day today: remember to record the new bill in the panel",
     },
 }
 
@@ -986,6 +998,28 @@ def format_summary(kind: str, lang: str, d: dict[str, Any]) -> str:
     cur = d.get("currency", "")
     rate = float(d.get("rate") or 0.0)
     lines: list[str] = []
+    if kind == "cycle":
+        lines.append(text["cycle_title"].format(start=_fmt_dm(d["start"]), end=_fmt_dm(d["end"]), days=int(d.get("days") or 0)))
+        lines.append(
+            text["cycle_total"].format(
+                kwh=_fmt_num(d.get("cycle_kwh") or 0.0, 1),
+                cur=cur,
+                cost=_fmt_num(d.get("cycle_bill") or 0.0, 0),
+                avg=_fmt_num(d.get("avg_kwh") or 0.0, 1),
+            )
+        )
+        devices = _fmt_items(d.get("devices") or [])
+        if devices:
+            lines.append(text["devices_cycle"].format(items=devices))
+        if d.get("last_bill_kwh") is not None and d.get("last_bill_amount") is not None:
+            lines.append(text["last_bill"].format(kwh=_fmt_num(d["last_bill_kwh"], 0), cur=cur, cost=_fmt_num(d["last_bill_amount"], 0)))
+        if d.get("forecast_bill") is not None:
+            lines.append(text["forecast"].format(cur=cur, cost=_fmt_num(d["forecast_bill"], 0)))
+        if d.get("next_cutoff"):
+            lines.append(text["cutoff"].format(date=_fmt_dm(d["next_cutoff"])))
+        if d.get("reminder"):
+            lines.append(text["reminder"])
+        return "\n".join(lines)
     if kind == "daily":
         lines.append(text["daily_title"].format(date=_fmt_dm(d["date"])))
         today_kwh = float(d.get("today_kwh") or 0.0)
@@ -1023,3 +1057,47 @@ def format_summary(kind: str, lang: str, d: dict[str, Any]) -> str:
     if d.get("forecast_bill") is not None:
         lines.append(text["forecast"].format(cur=cur, cost=_fmt_num(d["forecast_bill"], 0)))
     return "\n".join(lines)
+
+
+def history_from_daily_changes(
+    changes: dict[str, dict[str, float]],
+    total_sources: Iterable[str],
+) -> list[dict[str, Any]]:
+    """Turn per-day energy changes into daily-history entries.
+
+    ``changes`` maps an ISO date to {source: kWh used that day}. The day total is the sum of
+    ``total_sources`` (the main meter alone, or all sources).
+    """
+    totals = set(total_sources)
+    entries = []
+    for day in sorted(changes):
+        per = {k: round(max(0.0, float(v)), 3) for k, v in changes[day].items()}
+        if not any(k in per for k in totals):
+            continue
+        entries.append({"date": day, "kwh": round(sum(v for k, v in per.items() if k in totals), 3), "per_source": per})
+    return entries
+
+
+def merge_history(
+    history: list[dict[str, Any]],
+    extra: list[dict[str, Any]],
+    max_days: int,
+) -> list[dict[str, Any]]:
+    """Add ``extra`` days that ``history`` does not have yet (existing days win), newest kept."""
+    known = {h.get("date") for h in history}
+    merged = list(history) + [e for e in extra if e.get("date") not in known]
+    return sorted(merged, key=lambda h: str(h.get("date")))[-max_days:]
+
+
+def implied_ft_rate(bill: dict[str, Any] | None) -> float | None:
+    """Ft per kWh implied by a bill that has its Ft charge and units, else None."""
+    if not bill:
+        return None
+    ft = bill.get("ft_charge")
+    kwh = bill.get("kwh")
+    try:
+        if ft is None or not kwh or float(kwh) <= 0:
+            return None
+        return round(float(ft) / float(kwh), 4)
+    except (TypeError, ValueError):
+        return None

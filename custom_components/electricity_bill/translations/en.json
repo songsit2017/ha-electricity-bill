@@ -193,6 +193,16 @@
           "description": "Meter value at the start of the cycle (default 0)."
         }
       }
+    },
+    "get_summary": {
+      "name": "Get summary",
+      "description": "Return a daily, weekly or billing-cycle summary with a ready-made text in \"message\" (use with response_variable, e.g. to answer a Telegram command).",
+      "fields": {
+        "kind": {
+          "name": "Kind",
+          "description": "daily (today so far), weekly (last 7 days) or cycle (current billing cycle)."
+        }
+      }
     }
   },
   "exceptions": {
@@ -234,6 +244,16 @@
         "thailand_residential": "Thailand residential (PEA/MEA)",
         "custom": "Custom tiers"
       }
+    }
+  },
+  "issues": {
+    "source_unavailable": {
+      "title": "Electricity meter unavailable",
+      "description": "These energy sensors have been unavailable for more than an hour: {entities}. Today, cycle and summary figures are paused until they come back. Check the meter (e.g. the Wi-Fi breaker) and its integration."
+    },
+    "ft_rate_outdated": {
+      "title": "Ft rate differs from your last bill",
+      "description": "Your last bill implies an Ft of {bill_ft} per kWh, but the integration uses {configured_ft}. Update \"Per-kWh adder (Ft)\" in Electricity Bill > Configure > Tariff page so estimates match the bill."
     }
   }
 }

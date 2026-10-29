@@ -193,6 +193,16 @@
           "description": "ค่ามิเตอร์ ณ จุดเริ่มรอบ (ค่าเริ่มต้น 0)"
         }
       }
+    },
+    "get_summary": {
+      "name": "ดึงสรุปค่าไฟ",
+      "description": "ส่งคืนสรุปรายวัน รายสัปดาห์ หรือรอบบิล พร้อมข้อความสำเร็จรูปใน \"message\" (ใช้กับ response_variable เช่น ตอบคำสั่งใน Telegram)",
+      "fields": {
+        "kind": {
+          "name": "ชนิด",
+          "description": "daily (วันนี้ถึงตอนนี้), weekly (7 วันล่าสุด) หรือ cycle (รอบบิลปัจจุบัน)"
+        }
+      }
     }
   },
   "exceptions": {
@@ -234,6 +244,16 @@
         "thailand_residential": "ไทย บ้านอยู่อาศัย (กฟภ./กฟน.)",
         "custom": "กำหนดเอง"
       }
+    }
+  },
+  "issues": {
+    "source_unavailable": {
+      "title": "มิเตอร์ไฟฟ้าไม่ตอบสนอง",
+      "description": "เซ็นเซอร์พลังงานเหล่านี้ไม่ตอบสนองนานกว่าหนึ่งชั่วโมง: {entities} ตัวเลขวันนี้ รอบบิล และสรุปจะหยุดจนกว่าจะกลับมา ตรวจมิเตอร์ (เช่น เบรกเกอร์ Wi-Fi) และ integration ของมัน"
+    },
+    "ft_rate_outdated": {
+      "title": "ค่า Ft ไม่ตรงกับบิลล่าสุด",
+      "description": "บิลล่าสุดคิด Ft {bill_ft} ต่อหน่วย แต่ integration ใช้ {configured_ft} แก้ \"ค่าเพิ่มต่อหน่วย (Ft)\" ที่ Electricity Bill > Configure > หน้าอัตราค่าไฟ เพื่อให้ประมาณการตรงบิล"
     }
   }
 }

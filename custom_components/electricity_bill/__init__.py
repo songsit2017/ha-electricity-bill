@@ -13,9 +13,10 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform, STATE_UNAVAILABLE, STATE_UNKNOWN
-from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
+from homeassistant.core import Event, HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse, callback
 from homeassistant.exceptions import ServiceValidationError
 import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import (
     async_track_state_change_event,
@@ -33,6 +34,9 @@ from .calc import (
     calculate_cycle_unmetered_kwh,
     calculate_daily_average,
     format_summary,
+    history_from_daily_changes,
+    implied_ft_rate,
+    merge_history,
     summarize_period,
     is_high_usage,
     roll_day,
@@ -107,6 +111,12 @@ from .const import (
     SERVICE_REMOVE_BILL,
     SERVICE_RESET_CYCLE,
     SERVICE_SET_BASELINE,
+    SERVICE_GET_SUMMARY,
+    SUMMARY_KINDS,
+    ISSUE_SOURCE_UNAVAILABLE,
+    ISSUE_FT_OUTDATED,
+    SOURCE_UNAVAILABLE_ISSUE_AFTER,
+    BACKFILL_DAYS,
 )
 from .store import ElectricityBillStore
 
@@ -175,6 +185,8 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._yesterday_kwh: float | None = None
         self._high_usage_notified: str | None = None
         self._history: list[dict[str, Any]] = []
+        self._source_missing_since: datetime | None = None
+        self._active_issues: set[str] = set()
 
     def _opt(self, key: str, default: Any) -> Any:
         value = self.entry.options.get(key, self.entry.data.get(key))
@@ -403,6 +415,11 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass,
                 self.sources,
                 _async_on_source_change,
+            )
+
+        if len(self._history) < 14 and self.sources:
+            self.entry.async_create_background_task(
+                self.hass, self._async_backfill_history(), "electricity_bill_backfill"
             )
 
     def async_unload(self) -> None:
@@ -635,6 +652,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
         self._check_budget()
         self._check_high_usage()
+        self._check_issues()
 
     @callback
     def _check_budget(self) -> None:
@@ -702,52 +720,73 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             devices.append((str(name).replace("_kwh", "").replace("_", " ").strip(), float(kwh)))
         return sorted(devices, key=lambda x: x[1], reverse=True)
 
-    @callback
-    def _fire_summaries(self) -> None:
-        """At the summary hour fire the daily summary and, on the weekly day, the weekly one."""
-        if not self.data or not self._day:
-            return
+    def _summary_payload(self, kind: str) -> dict[str, Any] | None:
+        """Data and ready-made text for a daily, weekly or cycle summary (None without data)."""
+        if not self.data:
+            return None
         today = dt_util.now().date()
         lang = (self.hass.config.language or "en").split("-")[0].lower()
-        currency = {"THB": "฿"}.get(self.hass.config.currency, self.hass.config.currency + " ")
+        currency = {"THB": "฿"}.get(self.hass.config.currency, f"{self.hass.config.currency} ")
         rate = float(self.data.get("effective_rate") or 0.0)
-        today_kwh = self.data.get("today_kwh")
-        if today_kwh is None:
-            return
-        current_snapshot = self.get_current_snapshot()
-        _, today_per_source = calculate_cycle_kwh(current_snapshot, self._day.get("snapshot", {}))
         forecast = (self.data.get("forecast") or {}).get("bill") or {}
-        base = {
+        base: dict[str, Any] = {
             "currency": currency,
             "rate": rate,
             "cycle_kwh": self.data.get("cycle_kwh"),
             "cycle_bill": (self.data.get("cycle_bill_estimate") or {}).get("total"),
             "forecast_bill": forecast.get("total"),
         }
-        daily = dict(
-            base,
-            date=today.isoformat(),
-            today_kwh=today_kwh,
-            yesterday_kwh=self._yesterday_kwh,
-            avg_kwh=self.data.get("daily_average_kwh"),
-            devices=self._device_list(today_per_source),
-        )
-        self.hass.bus.async_fire(
-            EVENT_DAILY_SUMMARY,
-            {
+        if kind == "cycle":
+            cutoff = self.data.get("next_cutoff")
+            start = self.data.get("cycle_start") or today.isoformat()
+            fields = dict(
+                base,
+                start=start,
+                end=today.isoformat(),
+                days=self.data.get("days_in_cycle") or 0,
+                avg_kwh=self.data.get("daily_average_kwh"),
+                devices=self._device_list(self.data.get("per_source") or {}),
+                last_bill_kwh=self.data.get("last_bill_kwh"),
+                last_bill_amount=self.data.get("last_bill_amount"),
+                next_cutoff=cutoff.isoformat() if cutoff else None,
+                reminder=cutoff == today,
+            )
+            return {
+                "kind": "cycle",
+                "start": start,
+                "end": today.isoformat(),
+                "cycle_kwh": self.data.get("cycle_kwh"),
+                "bill_estimate": base["cycle_bill"],
+                "forecast_bill": base["forecast_bill"],
+                "devices": [{"name": n, "kwh": round(k, 3)} for n, k in fields["devices"]],
+                "message": format_summary("cycle", lang, fields),
+            }
+        today_kwh = self.data.get("today_kwh")
+        if today_kwh is None or not self._day:
+            return None
+        current_snapshot = self.get_current_snapshot()
+        _, today_per_source = calculate_cycle_kwh(current_snapshot, self._day.get("snapshot", {}))
+        if kind == "daily":
+            fields = dict(
+                base,
+                date=today.isoformat(),
+                today_kwh=today_kwh,
+                yesterday_kwh=self._yesterday_kwh,
+                avg_kwh=self.data.get("daily_average_kwh"),
+                devices=self._device_list(today_per_source),
+            )
+            return {
+                "kind": "daily",
                 "date": today.isoformat(),
                 "today_kwh": today_kwh,
                 "yesterday_kwh": self._yesterday_kwh,
                 "daily_average_kwh": self.data.get("daily_average_kwh"),
                 "cost_estimate": round(today_kwh * rate, 2),
-                "devices": [{"name": n, "kwh": round(k, 3)} for n, k in daily["devices"]],
-                "message": format_summary("daily", lang, daily),
-            },
-        )
-        if today.weekday() != self.weekly_day:
-            return
+                "devices": [{"name": n, "kwh": round(k, 3)} for n, k in fields["devices"]],
+                "message": format_summary("daily", lang, fields),
+            }
         week = summarize_period(self._history, today, today_kwh, today_per_source, days=7)
-        weekly = dict(
+        fields = dict(
             base,
             start=week["start"],
             end=week["end"],
@@ -758,21 +797,117 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             change_pct=week["change_pct"],
             devices=self._device_list(week["per_source"]),
         )
-        self.hass.bus.async_fire(
-            EVENT_WEEKLY_SUMMARY,
-            {
-                "start": week["start"],
-                "end": week["end"],
-                "kwh": week["kwh"],
-                "avg_per_day": week["avg_per_day"],
-                "known_days": week["known_days"],
-                "cost_estimate": round(week["kwh"] * rate, 2),
-                "change_pct": week["change_pct"],
-                "peak": week["peak"],
-                "devices": [{"name": n, "kwh": round(k, 3)} for n, k in weekly["devices"]],
-                "message": format_summary("weekly", lang, weekly),
-            },
+        return {
+            "kind": "weekly",
+            "start": week["start"],
+            "end": week["end"],
+            "kwh": week["kwh"],
+            "avg_per_day": week["avg_per_day"],
+            "known_days": week["known_days"],
+            "cost_estimate": round(week["kwh"] * rate, 2),
+            "change_pct": week["change_pct"],
+            "peak": week["peak"],
+            "devices": [{"name": n, "kwh": round(k, 3)} for n, k in fields["devices"]],
+            "message": format_summary("weekly", lang, fields),
+        }
+
+    @callback
+    def _fire_summaries(self) -> None:
+        """At the summary hour fire the daily summary and, on the weekly day, the weekly one."""
+        daily = self._summary_payload("daily")
+        if daily is None:
+            return
+        self.hass.bus.async_fire(EVENT_DAILY_SUMMARY, daily)
+        if dt_util.now().date().weekday() == self.weekly_day:
+            weekly = self._summary_payload("weekly")
+            if weekly is not None:
+                self.hass.bus.async_fire(EVENT_WEEKLY_SUMMARY, weekly)
+
+    async def _async_backfill_history(self) -> None:
+        """Fill missing finished days of the daily history from the recorder's daily statistics."""
+        try:
+            from homeassistant.components.recorder import get_instance
+            from homeassistant.components.recorder.statistics import statistics_during_period
+
+            today = dt_util.now().date()
+            start_dt = dt_util.start_of_local_day(today - timedelta(days=BACKFILL_DAYS))
+            end_dt = dt_util.start_of_local_day(today)
+            stats = await get_instance(self.hass).async_add_executor_job(
+                statistics_during_period,
+                self.hass,
+                start_dt,
+                end_dt,
+                set(self.sources),
+                "day",
+                None,
+                {"change"},
+            )
+        except Exception as err:  # noqa: BLE001 - backfill is best effort
+            _LOGGER.debug("Daily history backfill skipped: %s", err)
+            return
+        changes: dict[str, dict[str, float]] = {}
+        for source, rows in (stats or {}).items():
+            for row in rows or []:
+                change = row.get("change")
+                start = row.get("start")
+                if change is None or start is None:
+                    continue
+                if isinstance(start, (int, float)):
+                    start = dt_util.utc_from_timestamp(start)
+                day = dt_util.as_local(start).date().isoformat()
+                changes.setdefault(day, {})[source] = float(change)
+        extra = history_from_daily_changes(changes, self.total_sources)
+        merged = merge_history(self._history, extra, HISTORY_MAX_DAYS)
+        if len(merged) != len(self._history):
+            _LOGGER.debug("Backfilled %s day(s) of history", len(merged) - len(self._history))
+            self._history = merged
+            await self.store.async_set_extra("daily_history", self._history)
+
+    @callback
+    def _check_issues(self) -> None:
+        """Raise or clear Repairs issues: a total source unavailable for long, an outdated Ft."""
+        # 1. total source unavailable for more than SOURCE_UNAVAILABLE_ISSUE_AFTER seconds
+        if self._total_sources_ready():
+            self._source_missing_since = None
+            self._set_issue(ISSUE_SOURCE_UNAVAILABLE, False)
+        else:
+            now = dt_util.utcnow()
+            if self._source_missing_since is None:
+                self._source_missing_since = now
+            elif (now - self._source_missing_since).total_seconds() > SOURCE_UNAVAILABLE_ISSUE_AFTER:
+                self._set_issue(
+                    ISSUE_SOURCE_UNAVAILABLE,
+                    True,
+                    {"entities": ", ".join(self.total_sources)},
+                )
+        # 2. Ft from the latest bill differs from the configured Ft (tariff profiles only)
+        implied = implied_ft_rate(self.bills[-1] if self.bills else None)
+        outdated = (
+            self._tiers() is not None
+            and implied is not None
+            and abs(implied - self.ft_rate) > 0.0006
         )
+        self._set_issue(
+            ISSUE_FT_OUTDATED,
+            outdated,
+            {"bill_ft": f"{implied:.4f}" if implied is not None else "-", "configured_ft": f"{self.ft_rate:.4f}"},
+        )
+
+    def _set_issue(self, issue_id: str, active: bool, placeholders: dict[str, str] | None = None) -> None:
+        if active and issue_id not in self._active_issues:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key=issue_id,
+                translation_placeholders=placeholders or {},
+            )
+            self._active_issues.add(issue_id)
+        elif not active and issue_id in self._active_issues:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            self._active_issues.discard(issue_id)
 
     async def _async_save_day(self) -> None:
         """Persist the day-start record and yesterday's total (extra keys of the store)."""
@@ -824,6 +959,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "cycle_kwh": self.data.get("cycle_kwh"),
                 "bill_estimate": (self.data.get("cycle_bill_estimate") or {}).get("total"),
                 "forecast_bill": (forecast.get("bill") or {}).get("total"),
+                "message": (self._summary_payload("cycle") or {}).get("message"),
             },
         )
 
@@ -1212,6 +1348,8 @@ async def async_unload_entry(
             hass.services.async_remove(DOMAIN, SERVICE_RESET_CYCLE)
         if hass.services.has_service(DOMAIN, SERVICE_SET_BASELINE):
             hass.services.async_remove(DOMAIN, SERVICE_SET_BASELINE)
+        if hass.services.has_service(DOMAIN, SERVICE_GET_SUMMARY):
+            hass.services.async_remove(DOMAIN, SERVICE_GET_SUMMARY)
 
         try:
             from homeassistant.components.frontend import async_remove_panel
@@ -1285,6 +1423,20 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         coordinator = entries[0].runtime_data
         await coordinator.async_reset_cycle()
 
+    async def handle_get_summary(call: ServiceCall) -> ServiceResponse:
+        entries: list[ElectricityBillConfigEntry] = hass.config_entries.async_entries(DOMAIN)
+        if not entries:
+            raise ServiceValidationError(
+                "No Electricity Bill integration configured.",
+                translation_domain=DOMAIN,
+                translation_key="no_energy_sources",
+            )
+        coordinator = entries[0].runtime_data
+        payload = coordinator._summary_payload(call.data.get("kind", "daily"))
+        if payload is None:
+            return {"kind": call.data.get("kind", "daily"), "message": None}
+        return payload
+
     async def handle_set_baseline(call: ServiceCall) -> None:
         entries: list[ElectricityBillConfigEntry] = hass.config_entries.async_entries(DOMAIN)
         if not entries:
@@ -1319,4 +1471,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_SET_BASELINE,
         handle_set_baseline,
         schema=SET_BASELINE_SCHEMA,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_SUMMARY,
+        handle_get_summary,
+        schema=vol.Schema({vol.Optional("kind", default="daily"): vol.In(SUMMARY_KINDS)}),
+        supports_response=SupportsResponse.ONLY,
     )

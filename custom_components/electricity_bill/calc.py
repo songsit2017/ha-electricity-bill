@@ -1101,3 +1101,10 @@ def implied_ft_rate(bill: dict[str, Any] | None) -> float | None:
         return round(float(ft) / float(kwh), 4)
     except (TypeError, ValueError):
         return None
+
+
+def clean_device_name(name: str) -> str:
+    """Readable device name: drop a trailing "kWh"/"_kwh" and turn underscores into spaces."""
+    text = str(name).replace("_", " ").strip()
+    text = re.sub(r"\s*kwh\s*$", "", text, flags=re.IGNORECASE).strip()
+    return text or str(name)

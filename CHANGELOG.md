@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.2
+
+- Panel: removed the "take bill photo" button (the Android app opened only the gallery); use "choose photo" instead.
+
 ## 0.14.1
 
 - Panel: "take bill photo" now also sends the legacy camera hint so the Android app opens the camera instead of only the gallery.

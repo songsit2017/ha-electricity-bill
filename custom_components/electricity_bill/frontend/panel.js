@@ -1119,15 +1119,13 @@ class ElectricityBillPanel extends HTMLElement {
     this._tiles = el("div", { class: "tiles" });
 
     // scan card
-    this._cameraInput = el("input", { type: "file", accept: "image/*;capture=camera", capture: "environment", style: "display:none" });
     this._galleryInput = el("input", { type: "file", accept: "image/*", style: "display:none" });
-    for (const inp of [this._cameraInput, this._galleryInput]) {
+    for (const inp of [this._galleryInput]) {
       inp.addEventListener("change", (e) => {
         const f = e.target.files && e.target.files[0];
         if (f) this._scan(f);
       });
     }
-    this._cameraBtn = el("button", { class: "btn", onclick: () => this._cameraInput.click() }, icon("mdi:camera"), T("ถ่ายรูปบิล"));
     this._galleryBtn = el("button", { class: "btn ghost", onclick: () => this._galleryInput.click() }, icon("mdi:image"), T("เลือกรูป"));
     this._previewImg = el("img", { alt: T("รูปบิล") });
     this._preview = el(
@@ -1142,8 +1140,7 @@ class ElectricityBillPanel extends HTMLElement {
       el("div", { class: "drop-ico" }, icon("mdi:receipt-text-outline")),
       el("div", { class: "drop-title", text: T("ถ่ายหรือลากรูปบิลมาวางที่นี่") }),
       el("div", { class: "drop-sub", text: T("AI จะอ่านวันที่ หน่วย และยอดเงินให้อัตโนมัติ คุณตรวจแก้ได้ก่อนบันทึก") }),
-      el("div", { class: "btn-row" }, this._cameraBtn, this._galleryBtn),
-      this._cameraInput,
+      el("div", { class: "btn-row" }, this._galleryBtn),
       this._galleryInput
     );
     for (const ev of ["dragenter", "dragover"]) {
@@ -2075,7 +2072,7 @@ class ElectricityBillPanel extends HTMLElement {
     this._warnings = [];
     this._confidence = null;
     this._renderNotes();
-    this._cameraBtn.disabled = this._galleryBtn.disabled = true;
+    this._galleryBtn.disabled = true;
 
     if (this._previewUrl) URL.revokeObjectURL(this._previewUrl);
     this._previewUrl = URL.createObjectURL(file);
@@ -2132,8 +2129,7 @@ class ElectricityBillPanel extends HTMLElement {
     } finally {
       this._scanning = false;
       this._preview.classList.remove("scanning");
-      this._cameraBtn.disabled = this._galleryBtn.disabled = false;
-      this._cameraInput.value = "";
+      this._galleryBtn.disabled = false;
       this._galleryInput.value = "";
       this._renderNotes();
       this._onInput();

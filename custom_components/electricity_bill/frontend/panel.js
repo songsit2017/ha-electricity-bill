@@ -1119,7 +1119,7 @@ class ElectricityBillPanel extends HTMLElement {
     this._tiles = el("div", { class: "tiles" });
 
     // scan card
-    this._cameraInput = el("input", { type: "file", accept: "image/*", capture: "environment", style: "display:none" });
+    this._cameraInput = el("input", { type: "file", accept: "image/*;capture=camera", capture: "environment", style: "display:none" });
     this._galleryInput = el("input", { type: "file", accept: "image/*", style: "display:none" });
     for (const inp of [this._cameraInput, this._galleryInput]) {
       inp.addEventListener("change", (e) => {

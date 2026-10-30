@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.3
+
+- Docs: README no longer mentions taking a photo inside the panel.
+
 ## 0.14.2
 
 - Panel: removed the "take bill photo" button (the Android app opened only the gallery); use "choose photo" instead.

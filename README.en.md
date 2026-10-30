@@ -16,7 +16,7 @@ A Home Assistant custom integration that records your monthly electricity bill (
 - **Automatic history lookup**: if you enter a past period end date, the meter reading at the end of that day is taken from the HA Recorder long-term statistics.
 - **Meter reset handling**: if a smart plug or meter is reset to 0, the cycle energy never goes negative.
 - **Bill details (v0.3+)**: period start, base energy charge, Ft, service charge and VAT, plus per-day figures and change versus the previous bill (see "Bill details").
-- **"ค่าไฟ" sidebar panel**: enter a bill by hand, or photograph/upload it and let an AI Task (e.g. Anthropic) read the values (optional).
+- **"ค่าไฟ" sidebar panel**: enter a bill by hand, or choose a photo of it from your gallery and let an AI Task (e.g. Anthropic) read the values (optional).
 - **Set the starting point yourself (v0.3.1)**: the `set_baseline` service (and the "Advanced" card in the panel, v0.5), for newly added sensors such as a whole-house breaker.
 - **Whole-house main meter (v0.5)**: one main meter drives the cycle energy and cost, sub-meters give the per-device breakdown, a live "unmetered this cycle" sensor, and an optional reset button that is pressed automatically after you record a bill.
 - **Tariff profiles (v0.6)**: choose "none" (default, works anywhere), "Thailand residential" or "custom" to estimate the full bill from tiers + a per-kWh adder (e.g. Ft) + fixed monthly charge + tax, and forecast it to the billing day (see "Tariff and forecast").
@@ -300,7 +300,7 @@ tap_action:
 
 ## Scanning a bill and the web UI
 
-From version 0.2.0 there is a sidebar panel named **"ค่าไฟ"** where you can photograph or upload a bill and let an AI read it, then save it on one page.
+From version 0.2.0 there is a sidebar panel named **"ค่าไฟ"** where you can choose a bill photo from your gallery (there is no in-page camera button, so take the picture with your camera app first) and let an AI read it, then save it on one page.
 
 ### 1. Enabling AI Task (Anthropic integration)
 1. Go to **Settings** > **Devices & services** > **Add integration**.

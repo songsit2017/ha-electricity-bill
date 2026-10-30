@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.1
+
+- Panel: "take bill photo" now also sends the legacy camera hint so the Android app opens the camera instead of only the gallery.
+
 ## 0.14.0
 - Per-device sensors for every metered source: "<device> cycle energy" (kWh) and "<device> cycle cost" (kWh x the last bill's average rate), resetting every billing cycle.
 - Automatic cycle start at midnight after the billing day when the bill has not been recorded yet; recording the bill later moves the cut to the bill's period end.

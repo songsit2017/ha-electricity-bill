@@ -298,6 +298,12 @@ tap_action:
 
 ---
 
+## Abnormal device energy usage
+
+The Electricity panel discovers eligible meters on Home Assistant devices every 15 minutes. It prefers cumulative energy, estimates kWh from minute-by-minute readings when only power is available, and asks you to choose if multiple meters are plausible. Add a discovered meter to **Configure → Sources** if you also want to include it in billing.
+
+The integration learns locally over 28 days and needs at least seven past days for the same 15-minute time slot. Two consecutive elevated windows generate a Home Assistant notification and an `electricity_bill_device_high_usage` event, at most once per device per day. Use the event in a notification automation such as Telegram, and manage individual alert preferences from the Electricity panel.
+
 ## Scanning a bill and the web UI
 
 From version 0.2.0 there is a sidebar panel named **"ค่าไฟ"** where you can choose a bill photo from your gallery (there is no in-page camera button, so take the picture with your camera app first) and let an AI read it, then save it on one page.

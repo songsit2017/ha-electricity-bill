@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0
+
+- Discover device meters automatically and learn their normal usage locally.
+- Show monitoring status and per-device alert controls in the Electricity panel.
+- Notify Home Assistant and emit an automation event for abnormal device usage.
+
 ## 0.14.3
 
 - Docs: README no longer mentions taking a photo inside the panel.

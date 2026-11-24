@@ -1269,6 +1269,14 @@ class ElectricityBillPanel extends HTMLElement {
       el("h2", {}, icon("mdi:calendar-today"), T("ใช้ไฟรายวัน (รอบนี้)")),
       this._daily
     );
+    this._monitors = el("div");
+    const monitorCard = el(
+      "div",
+      { class: "card" },
+      el("h2", {}, icon("mdi:flash-alert-outline"),
+        LANG === "th" ? "ติดตามการใช้ไฟรายอุปกรณ์" : "Device energy monitoring"),
+      this._monitors
+    );
     const histCard = el(
       "div",
       { class: "card" },
@@ -1306,7 +1314,7 @@ class ElectricityBillPanel extends HTMLElement {
     );
 
     this._toast = el("div", { class: "toast" });
-    root.append(el("div", { class: "page" }, hero, this._tiles, chartCard, el("div", { class: "grid" }, breakdownCard, dailyCard), el("div", { class: "grid" }, addCard, histCard), baseCard), this._toast);
+    root.append(el("div", { class: "page" }, hero, this._tiles, chartCard, el("div", { class: "grid" }, breakdownCard, dailyCard), monitorCard, el("div", { class: "grid" }, addCard, histCard), baseCard), this._toast);
   }
 
   /* ------------------------------ state ------------------------------ */
@@ -1348,7 +1356,63 @@ class ElectricityBillPanel extends HTMLElement {
     this._renderHistory();
     this._renderChart();
     this._renderBreakdown();
+    this._renderMonitors();
     this._renderDaily();
+  }
+
+  _renderMonitors() {
+    const cycle = this._hass.states["sensor.electricity_bill_cycle_energy"];
+    const devices = Object.entries(cycle?.attributes.device_usage || {});
+    const thai = LANG === "th";
+    const labels = thai
+      ? { learning: "กำลังเรียนรู้", monitoring: "กำลังติดตาม", high_usage: "ใช้ไฟสูง", unavailable: "ไม่มีข้อมูลมิเตอร์", ambiguous: "เลือกมิเตอร์" }
+      : { learning: "Learning", monitoring: "Monitoring", high_usage: "High usage", unavailable: "Meter unavailable", ambiguous: "Select a meter" };
+    const signature = JSON.stringify([LANG, devices]);
+    if (this._monitorSignature === signature && this._monitors.hasChildNodes()) return;
+    this._monitorSignature = signature;
+    this._monitors.replaceChildren();
+    if (!devices.length) {
+      this._monitors.append(el("p", { class: "hint", text: thai
+        ? "ยังไม่พบมิเตอร์รายอุปกรณ์" : "No device meters discovered yet." }));
+      return;
+    }
+    for (const [device, item] of devices.sort((a, b) => a[1].name.localeCompare(b[1].name, LOCALE))) {
+      const row = el("div", { class: "details-body" },
+        el("strong", { text: item.name }),
+        el("p", { class: "hint", text: [
+          labels[item.state], item.entity_id,
+          item.estimated ? (thai ? "kWh โดยประมาณ" : "Estimated kWh") : null,
+        ].filter(Boolean).join(" · ") })
+      );
+      if (item.state === "ambiguous") {
+        const picker = el("select", { "aria-label": labels.ambiguous });
+        for (const id of item.candidates) picker.append(el("option", { value: id, text: id }));
+        const save = el("button", { class: "btn small ghost", text: thai ? "ใช้มิเตอร์นี้" : "Use this meter" });
+        save.onclick = () => this._configureMonitor(save, { device, entity_id: picker.value });
+        row.append(picker, save);
+      } else {
+        const toggle = el("button", { class: "btn small ghost", text: item.alerts_enabled
+          ? (thai ? "ปิดแจ้งเตือน" : "Mute alerts") : (thai ? "เปิดแจ้งเตือน" : "Enable alerts") });
+        toggle.onclick = () => this._configureMonitor(toggle, { device, enabled: !item.alerts_enabled });
+        row.append(toggle);
+      }
+      this._monitors.append(row);
+    }
+  }
+
+  async _configureMonitor(button, settings) {
+    button.disabled = true;
+    const thai = LANG === "th";
+    try {
+      await this._hass.callService("electricity_bill", "configure_device_monitor", settings);
+      this._toastMsg(settings.entity_id
+        ? (thai ? "จะเริ่มใช้มิเตอร์นี้ในรอบถัดไป" : "The selected meter will be used on the next sample.")
+        : (thai ? "บันทึกการแจ้งเตือนแล้ว" : "Alert setting saved."), false);
+    } catch (err) {
+      this._toastMsg(String(err?.message || err), true);
+    } finally {
+      button.disabled = false;
+    }
   }
 
   _renderBaselineOptions() {

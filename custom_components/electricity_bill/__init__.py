@@ -25,6 +25,7 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
+from .device_usage import DeviceEnergyMonitor
 from .views import PanelAssetView, ScanView
 
 from .calc import (
@@ -96,6 +97,7 @@ from .const import (
     EVENT_BUDGET_EXCEEDED,
     EVENT_CUTOFF_DAY,
     EVENT_HIGH_USAGE,
+    SERVICE_CONFIGURE_DEVICE_MONITOR,
     HIGH_USAGE_MIN_KWH,
     DAY_RECORD_VERSION,
     DEFAULT_SUMMARY_HOUR,
@@ -365,6 +367,10 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._high_usage_notified = stored.get("high_usage_notified")
         self._history = list(stored.get("daily_history") or [])
         self._auto_cycle_start = stored.get("auto_cycle_start")
+        self.device_monitor = DeviceEnergyMonitor(
+            self.hass, self.entry.entry_id, self.sources, self.main_meter
+        )
+        await self.device_monitor.async_load()
 
         # If baseline cycle snapshot is empty, initialize it from current states
         if not self.cycle_snapshot and self.sources:
@@ -405,7 +411,16 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         def _summary(_now: datetime) -> None:
             self._fire_summaries()
 
+        @callback
+        def _sample_devices(now: datetime) -> None:
+            self.device_monitor.async_sample(now, self.data.get("effective_rate"))
+            self.async_publish_device_usage()
+
+        _sample_devices(dt_util.now())
+        self.device_monitor.previous.clear()  # Only aligned intervals may feed the baseline.
         self._unsub_time = [
+            async_track_time_change(self.hass, _sample_devices, minute=[0, 15, 30, 45], second=0),
+            async_track_time_change(self.hass, self.device_monitor.async_sample_power, second=30),
             async_track_time_change(self.hass, _midnight, hour=0, minute=0, second=5),
             async_track_time_change(self.hass, _noon, hour=12, minute=0, second=0),
             async_track_time_change(self.hass, _summary, hour=self.summary_hour, minute=0, second=30),
@@ -439,6 +454,12 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for unsub in self._unsub_time:
             unsub()
         self._unsub_time = []
+
+    @callback
+    def async_publish_device_usage(self) -> None:
+        """Update the panel without recalculating the billing cycle."""
+        self.data = {**self.data, "device_usage": self.device_monitor.status}
+        self.async_update_listeners()
 
     def get_current_snapshot(self) -> dict[str, float]:
         """Read current values from source sensors."""
@@ -631,6 +652,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             forecast_bill = None
 
         self.data = {
+            "device_usage": self.device_monitor.status,
             "cycle_kwh": cycle_kwh,
             "per_source": per_source,
             "main_meter": main_meter,
@@ -1393,6 +1415,8 @@ async def async_unload_entry(
             hass.services.async_remove(DOMAIN, SERVICE_SET_BASELINE)
         if hass.services.has_service(DOMAIN, SERVICE_GET_SUMMARY):
             hass.services.async_remove(DOMAIN, SERVICE_GET_SUMMARY)
+        if hass.services.has_service(DOMAIN, SERVICE_CONFIGURE_DEVICE_MONITOR):
+            hass.services.async_remove(DOMAIN, SERVICE_CONFIGURE_DEVICE_MONITOR)
 
         try:
             from homeassistant.components.frontend import async_remove_panel
@@ -1491,6 +1515,35 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         coordinator = entries[0].runtime_data
         await coordinator.async_set_baseline(call.data["entity_id"], call.data["value"])
 
+    async def handle_configure_device_monitor(call: ServiceCall) -> None:
+        entries = hass.config_entries.async_entries(DOMAIN)
+        coordinator = getattr(entries[0], "runtime_data", None) if entries else None
+        key = call.data["device"]
+        monitor = coordinator.device_monitor if coordinator is not None else None
+        status = monitor.status.get(key, {}) if monitor else {}
+        if "entity_id" in call.data:
+            entity_id = call.data["entity_id"]
+            if entity_id not in status.get("candidates", []):
+                raise ServiceValidationError("The selected meter does not belong to this device.")
+            monitor.async_select_meter(key, entity_id)
+        elif "enabled" in call.data:
+            if "alerts_enabled" not in status:
+                raise ServiceValidationError("The device does not have a selected energy meter.")
+            monitor.async_set_alerts(key, call.data["enabled"])
+            coordinator.async_publish_device_usage()
+        else:
+            raise ServiceValidationError("Provide an alert setting or a meter entity.")
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CONFIGURE_DEVICE_MONITOR,
+        handle_configure_device_monitor,
+        schema=vol.Schema({
+            vol.Required("device"): cv.string,
+            vol.Exclusive("enabled", "setting"): cv.boolean,
+            vol.Exclusive("entity_id", "setting"): cv.entity_id,
+        }),
+    )
     hass.services.async_register(
         DOMAIN,
         SERVICE_ADD_BILL,

@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import device_registry as dr, entity_registry as er, issue_registry as ir
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -13,7 +13,7 @@ from pytest_homeassistant_custom_component.common import (
     async_mock_service,
 )
 
-from custom_components.electricity_bill.const import DOMAIN
+from custom_components.electricity_bill.const import DOMAIN, EVENT_DEVICE_HIGH_USAGE
 from custom_components.electricity_bill.diagnostics import async_get_config_entry_diagnostics
 
 MAIN = "sensor.main_meter"
@@ -223,3 +223,66 @@ async def test_panel_file_is_served_no_cache(recorder_mock, hass: HomeAssistant,
     assert again.status == 304
     missing = await client.get("/electricity_bill_panel/nothing.js")
     assert missing.status == 404
+
+
+async def test_new_device_discovery_does_not_change_bill_sources(hass: HomeAssistant) -> None:
+    _set(hass, AC, 2)
+    entry = await _setup(hass)
+    coordinator = entry.runtime_data
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={("demo", "new-meter")}
+    )
+    registry = er.async_get(hass)
+    energy = registry.async_get_or_create(
+        "sensor", "demo", "new-energy", suggested_object_id="new_energy", device_id=device.id,
+        config_entry=entry,
+    ).entity_id
+    _set(hass, energy, 10)
+    monitor = coordinator.device_monitor
+    now = dt_util.now().replace(hour=12, minute=0, second=0, microsecond=0)
+    monitor.async_sample(now, 4.4)
+    assert monitor.status[device.id]["entity_id"] == energy
+    assert monitor.status[device.id]["state"] == "learning"
+    assert coordinator.sources == [AC]
+
+    second = registry.async_get_or_create(
+        "sensor", "demo", "second-energy", suggested_object_id="second_energy", device_id=device.id,
+        config_entry=entry,
+    ).entity_id
+    _set(hass, second, 30)
+    monitor.async_sample(now + timedelta(minutes=15), 4.4)
+    assert monitor.status[device.id]["state"] == "ambiguous"
+    await hass.services.async_call(
+        DOMAIN, "configure_device_monitor", {"device": device.id, "entity_id": energy}, blocking=True,
+    )
+    monitor.async_sample(now + timedelta(minutes=30), 4.4)
+    assert monitor.status[device.id]["entity_id"] == energy
+    assert coordinator.sources == [AC]
+
+
+async def test_device_alert_needs_two_complete_high_windows_and_respects_mute(hass: HomeAssistant) -> None:
+    _set(hass, AC, 2)
+    entry = await _setup(hass)
+    monitor = entry.runtime_data.device_monitor
+    start = dt_util.now().replace(hour=12, minute=0, second=0, microsecond=0)
+    monitor.async_sample(start, 4.4)
+    monitor.records[AC]["windows"] = {
+        (start.date() - timedelta(days=days)).isoformat(): {
+            f"12:{quarter}": 0.1 for quarter in range(4)
+        }
+        for days in range(1, 8)
+    }
+    alerts = async_capture_events(hass, EVENT_DEVICE_HIGH_USAGE)
+    for quarter in range(1, 5):
+        _set(hass, AC, 2 + 0.3 * quarter)
+        monitor.async_sample(start + timedelta(minutes=15 * quarter), 4.4)
+        await hass.async_block_till_done()
+        assert len(alerts) == (0 if quarter == 1 else 1)
+
+    assert alerts[0].data["kwh"] == 0.3
+    assert alerts[0].data["baseline_kwh"] == 0.1
+    await hass.services.async_call(
+        DOMAIN, "configure_device_monitor", {"device": AC, "enabled": False}, blocking=True,
+    )
+    assert monitor.status[AC]["alerts_enabled"] is False
+    assert monitor.streak.get(AC) is None

@@ -80,6 +80,7 @@ SENSOR_DESCRIPTIONS: tuple[ElectricityBillSensorEntityDescription, ...] = (
         value_fn=lambda data: data.get("cycle_kwh", 0.0),
         attr_fn=lambda data: {
             "per_source": data.get("per_source", {}),
+            "device_usage": data.get("device_usage", {}),
             "cycle_start": data.get("cycle_start"),
             "days_in_cycle": data.get("days_in_cycle", 0),
         },

@@ -107,3 +107,19 @@ get_summary:
             - daily
             - weekly
             - cycle
+
+configure_device_monitor:
+  name: Configure device monitoring
+  description: Select a meter for monitoring or enable or mute its usage alerts.
+  fields:
+    device:
+      required: true
+      selector:
+        text: {}
+    entity_id:
+      selector:
+        entity:
+          domain: sensor
+    enabled:
+      selector:
+        boolean: {}

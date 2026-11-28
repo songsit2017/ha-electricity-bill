@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.14.4
+
+- Fix: an energy source that is unavailable or unknown during startup, bill recording, cycle reset or day roll no longer gets a `0.0` baseline (which counted its lifetime counter into the cycle). Its baseline is now recorded from its first valid reading and it contributes `0` until then.
+- Fix: for the `thailand_residential` tariff profile, when the latest recorded bill has `kwh > 150`, cycle and forecast bill estimates always use the over-150 tier table even while the current cycle is still at or below 150 kWh.
+- Python change: restart Home Assistant once after updating.
+
 ## 0.14.3
 
 - Docs: README no longer mentions taking a photo inside the panel.

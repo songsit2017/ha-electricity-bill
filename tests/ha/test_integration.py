@@ -223,3 +223,44 @@ async def test_panel_file_is_served_no_cache(recorder_mock, hass: HomeAssistant,
     assert again.status == 304
     missing = await client.get("/electricity_bill_panel/nothing.js")
     assert missing.status == 404
+
+
+async def test_unavailable_source_at_startup_does_not_invent_zero_baseline(recorder_mock, hass: HomeAssistant) -> None:
+    _set(hass, MAIN, 100)
+    hass.states.async_set(AC, "unavailable", dict(ATTRS, friendly_name="aircon_bedroom_kwh"))
+    entry = await _setup(hass, {"main_meter": MAIN, "sources": [AC]})
+    coordinator = entry.runtime_data
+    assert AC not in coordinator.cycle_snapshot
+    assert float(_state(hass, "cycle_energy")) == 0.0
+
+    # First valid reading becomes the persisted baseline (15.7), not 0.0
+    hass.states.async_set(AC, "15.7", dict(ATTRS, friendly_name="aircon_bedroom_kwh"))
+    await hass.async_block_till_done()
+    assert coordinator.cycle_snapshot[AC] == 15.7
+    assert float(hass.states.get("sensor.electricity_bill_aircon_bedroom_cycle_energy").state) == 0.0
+
+    # Subsequent reading counts only the real delta (18.4 - 15.7 = 2.7)
+    hass.states.async_set(AC, "18.4", dict(ATTRS, friendly_name="aircon_bedroom_kwh"))
+    await hass.async_block_till_done()
+    assert float(hass.states.get("sensor.electricity_bill_aircon_bedroom_cycle_energy").state) == 2.7
+
+
+async def test_thailand_residential_uses_over_150_tiers_after_high_bill(recorder_mock, hass: HomeAssistant) -> None:
+    _set(hass, MAIN, 10)
+    _set(hass, AC, 1)
+    entry = await _setup(hass, {"main_meter": MAIN, "sources": [AC], "tariff_profile": "thailand_residential"})
+    coordinator = entry.runtime_data
+
+    # No bill yet: 50 kWh <= 150 uses the small-user tier table
+    _set(hass, MAIN, 60)
+    await hass.async_block_till_done()
+    assert coordinator.data["cycle_bill_estimate"]["energy_charge"] == round(15 * 2.3488 + 10 * 2.9882 + 25 * 3.0, 2)
+
+    # Record a bill > 150 kWh; new cycle at 50 kWh must now use the over-150 tier table
+    await hass.services.async_call(
+        DOMAIN, "add_bill", {"period_end": dt_util.now().date().isoformat(), "kwh": 300, "amount": 1350}, blocking=True
+    )
+    await hass.async_block_till_done()
+    _set(hass, MAIN, 110)
+    await hass.async_block_till_done()
+    assert coordinator.data["cycle_bill_estimate"]["energy_charge"] == 150.0

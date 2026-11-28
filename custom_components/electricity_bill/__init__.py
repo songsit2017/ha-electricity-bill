@@ -191,6 +191,7 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._auto_roll_pending: str | None = None
         self._source_missing_since: datetime | None = None
         self._active_issues: set[str] = set()
+        self._last_valid_readings: dict[str, float] = {}
 
     def _opt(self, key: str, default: Any) -> Any:
         value = self.entry.options.get(key, self.entry.data.get(key))
@@ -288,8 +289,21 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "total": total,
             }
         over, up_to, small_limit = tiers
+        latest = self.bills[-1] if self.bills else None
+        force_over = (
+            self.tariff_profile == PROFILE_THAILAND
+            and latest is not None
+            and float(latest.get("kwh") or 0.0) > small_limit
+        )
         return estimate_bill(
-            kwh, over, up_to, small_limit, self.ft_rate, self.service_charge, self.vat_percent
+            kwh,
+            over,
+            up_to,
+            small_limit,
+            self.ft_rate,
+            self.service_charge,
+            self.vat_percent,
+            force_over_limit=force_over,
         )
 
     @property
@@ -366,28 +380,33 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._history = list(stored.get("daily_history") or [])
         self._auto_cycle_start = stored.get("auto_cycle_start")
 
-        # If baseline cycle snapshot is empty, initialize it from current states
+        # If baseline cycle snapshot is empty, initialize it from current valid states
         if not self.cycle_snapshot and self.sources:
             self.cycle_snapshot = self.get_current_snapshot()
-            await self.store.async_save(
-                {
-                    "bills": self.bills,
-                    "cycle_snapshot": self.cycle_snapshot,
-                }
-            )
+            if self.cycle_snapshot:
+                await self.store.async_save(
+                    {
+                        "bills": self.bills,
+                        "cycle_snapshot": self.cycle_snapshot,
+                    }
+                )
 
-        # Ensure any newly added sources have a baseline in cycle_snapshot
+        # Ensure any newly added sources with a valid reading have a baseline in cycle_snapshot
         missing_sources = [s for s in self.sources if s not in self.cycle_snapshot]
         if missing_sources:
             current_snap = self.get_current_snapshot()
+            added = False
             for s in missing_sources:
-                self.cycle_snapshot[s] = current_snap.get(s, 0.0)
-            await self.store.async_save(
-                {
-                    "bills": self.bills,
-                    "cycle_snapshot": self.cycle_snapshot,
-                }
-            )
+                if s in current_snap:
+                    self.cycle_snapshot[s] = current_snap[s]
+                    added = True
+            if added:
+                await self.store.async_save(
+                    {
+                        "bills": self.bills,
+                        "cycle_snapshot": self.cycle_snapshot,
+                    }
+                )
 
         self._update_internal_data()
 
@@ -441,27 +460,32 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsub_time = []
 
     def get_current_snapshot(self) -> dict[str, float]:
-        """Read current values from source sensors."""
+        """Read current values from source sensors, falling back to last valid reading since startup."""
         snapshot: dict[str, float] = {}
         for source in self.sources:
             state = self.hass.states.get(source)
             if state is not None and state.state not in (STATE_UNAVAILABLE, STATE_UNKNOWN):
                 try:
-                    snapshot[source] = round(float(state.state), 4)
+                    val = round(float(state.state), 4)
+                    if not math.isfinite(val):
+                        raise ValueError("non-finite")
+                    self._last_valid_readings[source] = val
+                    snapshot[source] = val
                 except (ValueError, TypeError):
                     _LOGGER.warning(
                         "Could not parse state '%s' of %s to float",
                         state.state,
                         source,
                     )
-                    snapshot[source] = self.cycle_snapshot.get(source, 0.0)
+                    if source in self._last_valid_readings:
+                        snapshot[source] = self._last_valid_readings[source]
+            elif source in self._last_valid_readings:
+                snapshot[source] = self._last_valid_readings[source]
             else:
-                _LOGGER.warning(
-                    "Source %s is currently unavailable or unknown; using baseline %s",
+                _LOGGER.debug(
+                    "Source %s is unavailable or unknown with no prior reading; omitting from snapshot",
                     source,
-                    self.cycle_snapshot.get(source, 0.0),
                 )
-                snapshot[source] = self.cycle_snapshot.get(source, 0.0)
         return snapshot
 
     async def async_get_snapshot_for_date(self, period_end_date: date) -> dict[str, float]:
@@ -527,29 +551,48 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             if val is not None:
                 snapshot[source] = round(val, 4)
-            else:
+            elif source in current_snapshot:
                 _LOGGER.warning(
                     "Statistics missing for source %s on %s; falling back to current state",
                     source,
                     period_end_date,
                 )
-                snapshot[source] = current_snapshot.get(source, 0.0)
+                snapshot[source] = current_snapshot[source]
+            else:
+                _LOGGER.warning(
+                    "Statistics and current state missing for source %s on %s; omitting from snapshot",
+                    source,
+                    period_end_date,
+                )
 
         return snapshot
 
     def _update_internal_data(self) -> None:
         """Recalculate internal entity data from current states and store."""
         current_snapshot = self.get_current_snapshot()
+        if self._auto_roll_pending and self._total_sources_ready():
+            self._maybe_start_cycle()
+            current_snapshot = self.get_current_snapshot()
+
+        added_baseline = False
+        for source in self.sources:
+            if source not in self.cycle_snapshot and source in current_snapshot:
+                self.cycle_snapshot[source] = current_snapshot[source]
+                added_baseline = True
+        if added_baseline:
+            self.hass.async_create_task(
+                self.store.async_save(
+                    {
+                        "bills": self.bills,
+                        "cycle_snapshot": self.cycle_snapshot,
+                    }
+                )
+            )
+
         cycle_kwh, per_source = calculate_cycle_kwh(
             current_snapshot, self.cycle_snapshot, only=self.total_sources
         )
         today_kwh: float | None = None
-        if self._auto_roll_pending and self._total_sources_ready():
-            self._maybe_start_cycle()
-            current_snapshot = self.get_current_snapshot()
-            cycle_kwh, per_source = calculate_cycle_kwh(
-                current_snapshot, self.cycle_snapshot, only=self.total_sources
-            )
         if self._total_sources_ready():
             today_date = dt_util.now().date()
             previous_day = self._day
@@ -1180,7 +1223,11 @@ class ElectricityBillCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             old_value = float(state.state)
         except (ValueError, TypeError):
             return
-        carry = calculate_source_delta(old_value, self.cycle_snapshot.get(main, 0.0))
+        carry = (
+            calculate_source_delta(old_value, self.cycle_snapshot[main])
+            if main in self.cycle_snapshot
+            else 0.0
+        )
 
         if self._unsub_reset_watch is not None:
             self._unsub_reset_watch()

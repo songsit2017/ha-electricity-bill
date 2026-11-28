@@ -66,11 +66,17 @@ def calculate_snapshot_delta(
     per_source: dict[str, float] = {}
 
     for source, curr_val in current_snapshot.items():
-        prev_val = previous_snapshot.get(source, 0.0)
-        delta = calculate_source_delta(curr_val, prev_val)
+        if source not in previous_snapshot:
+            per_source[source] = 0.0
+            continue
+        delta = calculate_source_delta(curr_val, previous_snapshot[source])
         per_source[source] = delta
         if only_set is None or source in only_set:
             total += delta
+
+    for source in previous_snapshot:
+        if source not in per_source:
+            per_source[source] = 0.0
 
     return round(total, 4), per_source
 
@@ -304,8 +310,9 @@ def recompute_bills(
             bill["measured_kwh"] = delta
             # energy per meter for this bill; only meters known at both ends of the period
             prev_keys = set((prev_bill.get("snapshot") or {}).keys())
+            curr_keys = set((bill.get("snapshot") or {}).keys())
             bill["per_source_kwh"] = {
-                k: round(v, 3) for k, v in per_source.items() if k in prev_keys
+                k: round(v, 3) for k, v in per_source.items() if k in prev_keys and k in curr_keys
             }
 
     return sorted_bills
@@ -673,14 +680,20 @@ def estimate_bill(
     ft_rate: float,
     service_charge: float,
     vat_percent: float,
+    force_over_limit: bool = False,
 ) -> dict[str, float]:
     """Estimate a residential bill for ``kwh`` units.
 
     Returns energy_charge, ft_charge, service_charge, subtotal, vat and total (baht).
-    Users of ``small_user_limit`` kWh or less use the small-user tier table.
+    Users of ``small_user_limit`` kWh or less use the small-user tier table,
+    unless ``force_over_limit`` is True (e.g. previous bill exceeded the limit).
     """
     kwh = max(0.0, float(kwh))
-    tiers = tiers_up_to_150 if kwh <= small_user_limit else tiers_over_150
+    tiers = (
+        tiers_up_to_150
+        if (not force_over_limit and kwh <= small_user_limit)
+        else tiers_over_150
+    )
     energy = calculate_progressive_energy_charge(kwh, tiers)
     ft = round(kwh * float(ft_rate), 2)
     service = round(float(service_charge), 2) if kwh > 0 else 0.0

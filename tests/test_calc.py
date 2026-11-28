@@ -61,15 +61,15 @@ def test_calculate_snapshot_delta():
         "sensor.pc_kwh": 125.5,             # +25.5
         "sensor.aircon_bedroom_kwh": 310.0, # +110.0
         "sensor.water_pump_kwh": 10.0,      # reset: +10.0
-        "sensor.speaker_kwh": 5.0,          # new sensor: +5.0 (prev was 0)
+        "sensor.speaker_kwh": 5.0,          # new sensor not in prev: 0.0
     }
 
     total, per_source = calc.calculate_snapshot_delta(curr_snapshot, prev_snapshot)
-    assert total == 25.5 + 110.0 + 10.0 + 5.0
+    assert total == 25.5 + 110.0 + 10.0
     assert per_source["sensor.pc_kwh"] == 25.5
     assert per_source["sensor.aircon_bedroom_kwh"] == 110.0
     assert per_source["sensor.water_pump_kwh"] == 10.0
-    assert per_source["sensor.speaker_kwh"] == 5.0
+    assert per_source["sensor.speaker_kwh"] == 0.0
 
     # No previous snapshot (first bill)
     total_none, per_source_none = calc.calculate_snapshot_delta(curr_snapshot, None)
@@ -1179,3 +1179,38 @@ def test_recompute_bills_stores_per_source_kwh_for_known_meters():
     assert out[1]["per_source_kwh"] == {"main": 300.0, "ac": 60.0}  # fridge was added later
     history = calc.format_bill_history(out)
     assert history[0]["per_source_kwh"] == {"main": 300.0, "ac": 60.0}
+
+
+def test_snapshot_delta_missing_sources_give_zero():
+    # Source missing from current snapshot (even with negative carry baseline) gives 0
+    prev = {"main": -8.0, "ac": 50.0}
+    curr = {"ac": 55.0, "new_meter": 15.7}
+    total, per_source = calc.calculate_snapshot_delta(curr, prev)
+    assert total == 5.0
+    assert per_source == {"ac": 5.0, "new_meter": 0.0, "main": 0.0}
+
+    # roll_day does not count a newly appearing source into yesterday_kwh
+    stored_day = {"date": "2026-10-26", "snapshot": {"main": 100.0}}
+    rec, yest, changed = calc.roll_day(
+        stored_day, "2026-10-27", "2026-10-26", {"main": 105.0, "ac": 15.7}, only=["main"]
+    )
+    assert changed is True
+    assert yest == 5.0
+    assert rec == {"date": "2026-10-27", "snapshot": {"main": 105.0, "ac": 15.7}}
+
+    # recompute_bills omits a meter missing from the end snapshot
+    bills = [
+        {"period_end": "2026-09-24", "snapshot": {"main": 100.0, "ac": 50.0}},
+        {"period_end": "2026-10-25", "snapshot": {"main": 150.0}},
+    ]
+    out = calc.recompute_bills(bills, only=["main"])
+    assert out[1]["measured_kwh"] == 50.0
+    assert out[1]["per_source_kwh"] == {"main": 50.0}
+
+
+def test_estimate_bill_force_over_limit():
+    small = calc.estimate_bill(50, OVER_150, UP_TO_150, 150, 0.1623, 24.62, 7.0)
+    over = calc.estimate_bill(50, OVER_150, UP_TO_150, 150, 0.1623, 24.62, 7.0, force_over_limit=True)
+    assert small["energy_charge"] == round(15 * 2.3488 + 10 * 2.9882 + 25 * 3.0, 2)
+    assert over["energy_charge"] == 150.0
+    assert calc.estimate_bill(0, OVER_150, UP_TO_150, 150, 0.1623, 24.62, 7.0, force_over_limit=True)["total"] == 0.0
